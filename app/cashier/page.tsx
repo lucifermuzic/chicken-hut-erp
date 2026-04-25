@@ -4,9 +4,9 @@ import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ClipboardList, ArrowLeftRight, Search, Monitor, Building, FileDigit,
-  Lock, AlertCircle, ShieldCheck, LogOut, Trash2, CheckCircle2,
+  Lock, AlertCircle, ShieldCheck, LogOut, Trash2, CheckCircle2, AlertTriangle,
   Receipt, Clock, Package, Eye, EyeOff, X, Plus, Minus, Volume2,
-  ChevronDown, Filter
+  ChevronDown, Filter, Phone, Printer, ThumbsDown, MapPin, User
 } from "lucide-react";
 import { db } from "../../lib/db";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -33,30 +33,45 @@ interface ShiftLog {
   surplus: number;
 }
 
-// ─── بيانات ثابتة ──────────────────────────────────────────
-const CASHIER_INFO = { name: "فاي ستيفاني", role: "كاشير", tillNo: "03", avatar: "https://i.pravatar.cc/150?img=44" };
 // PINs مُستوردة من الإعداد المركزي (lib/auth.ts)
 const MANAGER_PIN    = OPERATION_PINS.MANAGER;
 const TREASURER_PIN  = OPERATION_PINS.TREASURER;
 const SUPERVISOR_PIN = OPERATION_PINS.SUPERVISOR;
 
 const BANKS = ["مصرف الجمهورية", "مصرف التجارة والتنمية", "مصرف الأمان", "مصرف الوحدة", "مصرف النوران", "مصرف اليقين"];
-const MENU_CATEGORIES = ["الكل", "سناك", "قهوة", "حليب", "الطبق الرئيسي", "برجر", "بيتزا"];
+
 // يتم جلب قائمة المنتجات من قاعدة البيانات الآن
+const DEFAULT_AVATAR = "https://i.pravatar.cc/150?img=44"; // صورة احتياطية عند عدم وجود صورة موظف
 
 // ─── المكوّن الرئيسي ────────────────────────────────────────
 export default function POSDashboard() {
   const style = { fontFamily: "var(--font-cairo), sans-serif" };
 
-  const [sessionBranch, setSessionBranch] = useState("فرع وسط البلاد");
-  const [cashierName, setCashierName] = useState(CASHIER_INFO.name);
+  const [sessionBranch,  setSessionBranch]  = useState("فرع وسط البلاد");
+  const [cashierName,    setCashierName]    = useState("كاشير");
+  const [cashierAvatar,  setCashierAvatar]  = useState(DEFAULT_AVATAR);
+  const [cashierTillNo,  setCashierTillNo]  = useState("01");
 
   useEffect(() => {
     const session = getSession();
-    if (session) {
-      if (session.branch) setSessionBranch(session.branch);
-      if (session.employeeName) setCashierName(session.employeeName);
-    }
+    if (!session) return;
+    if (session.branch)       setSessionBranch(session.branch);
+    if (session.employeeName) setCashierName(session.employeeName);
+
+    // جلب صورة ورقم خزينة الموظف من DB
+    db.employees.toArray().then(allEmps => {
+      const emp = allEmps.find(
+        e => e.name === session.employeeName && e.branch === (session.branch || "")
+      );
+      if (emp) {
+        if (emp.avatar) setCashierAvatar(emp.avatar);
+        const branchCashiers = allEmps.filter(
+          e => e.branch === emp.branch && e.role === "كاشير"
+        );
+        const idx = branchCashiers.findIndex(e => e.id === emp.id);
+        if (idx >= 0) setCashierTillNo(String(idx + 1).padStart(2, "0"));
+      }
+    });
   }, []);
 
   // ─ الوردية الافتتاحية
@@ -94,6 +109,55 @@ export default function POSDashboard() {
       };
     });
   }, [dbOrders]);
+
+  // ─ طلبات مركز الاتصالات الواردة لهذا الفرع
+  const dbCCOrders = useLiveQuery(
+    () => db.callCenterOrders
+      .filter(o => o.status === "جديد")
+      .toArray()
+  ) || [];
+  const branchCCOrders = useMemo(
+    () => dbCCOrders.filter(o => o.targetBranch === sessionBranch),
+    [dbCCOrders, sessionBranch]
+  );
+
+  const handleApproveCC = async (id: number) => {
+    await db.callCenterOrders.update(id, {
+      status: "موافق عليه",
+      approvedAt: new Date().toISOString(),
+      approvedBy: cashierName,
+    });
+  };
+
+  const handleRejectCC = async (id: number) => {
+    await db.callCenterOrders.update(id, { status: "مرفوض" });
+  };
+
+  const handlePrintCC = (order: any) => {
+    const win = window.open("", "_blank", "width=400,height=600");
+    if (!win) return;
+    const items = (order.items as any[]).map(i =>
+      `<tr><td style="padding:4px 8px">${i.name}</td><td style="text-align:center">${i.quantity}</td><td style="text-align:left">${(i.price * i.quantity).toFixed(2)}</td></tr>`
+    ).join("");
+    win.document.write(`
+      <html dir="rtl"><head><title>طلب ${order.orderNumber}</title>
+      <style>body{font-family:Arial,sans-serif;padding:20px;font-size:13px}h2{text-align:center;color:#ff6b00}table{width:100%;border-collapse:collapse}th{background:#f0f0f0;padding:6px 8px}td{border-bottom:1px solid #eee;padding:4px 8px}.total{font-weight:bold;font-size:15px;text-align:left;margin-top:10px}</style>
+      </head><body>
+      <h2>🍗 تشيكن هات — مركز الاتصالات</h2>
+      <p><b>رقم الطلب:</b> ${order.orderNumber}</p>
+      <p><b>العميل:</b> ${order.customerName} | <b>الهاتف:</b> ${order.customerPhone}</p>
+      <p><b>الفرع:</b> ${order.targetBranch} | <b>النوع:</b> ${order.orderType}</p>
+      ${order.address ? `<p><b>العنوان:</b> ${order.address}</p>` : ""}
+      ${order.notes ? `<p><b>ملاحظات:</b> ${order.notes}</p>` : ""}
+      <hr/>
+      <table><thead><tr><th>الصنف</th><th>الكمية</th><th>السعر</th></tr></thead><tbody>${items}</tbody></table>
+      <p class="total">الإجمالي: ${order.totalAmount.toFixed(2)} د.ل</p>
+      <hr/><p style="text-align:center;font-size:11px;color:#999">وافق: ${cashierName} — ${new Date().toLocaleString("ar-SA")}</p>
+      </body></html>
+    `);
+    win.document.close();
+    win.print();
+  };
 
   const lastOrderId = dbOrders.length > 0 ? Math.max(...dbOrders.map(o => parseInt(o.orderNumber, 10) || 0)) : 0;
 
@@ -134,6 +198,8 @@ export default function POSDashboard() {
   const [splitEmpId, setSplitEmpId] = useState<string | null>(null);
   const [hospitalityPin, setHospitalityPin] = useState("");
   const [hospitalityPinErr, setHospitalityPinErr] = useState("");
+  const [cashPaidAmount, setCashPaidAmount] = useState("");
+  const [paymentError, setPaymentError] = useState("");
 
   const handleRevealBalance = (e: React.FormEvent) => {
     e.preventDefault();
@@ -155,6 +221,15 @@ export default function POSDashboard() {
   // ─ فلترة المنتجات المجلوبة من قاعدة البيانات
   const allProductsLive = useLiveQuery(() => db.menuItems.filter(item => item.isAvailable).toArray()) || [];
   const productsWithId: Product[] = allProductsLive.map(p => ({ ...p, id: p.id as number }));
+
+  // استخراج التصنيفات من المنتجات الفعلية وترتيبها كما طلب المستخدم
+  const MENU_CATEGORIES = useMemo(() => {
+    const categories = new Set(allProductsLive.map(p => p.category));
+    const predefinedOrder = ["برجر", "الطبق الرئيسي", "بيتزا", "سناك", "مشروبات", "قهوة"];
+    const ordered = predefinedOrder.filter(c => categories.has(c));
+    const others = Array.from(categories).filter(c => !predefinedOrder.includes(c));
+    return ["الكل", ...ordered, ...others];
+  }, [allProductsLive]);
   
   const dbEmployees = useLiveQuery(() => db.employees.toArray()) || [];
   const ALL_EMPLOYEES = dbEmployees;
@@ -220,6 +295,8 @@ export default function POSDashboard() {
     setSplitBankAmount("");
     setSplitEmpAmount("");
     setSplitEmpId(null);
+    setCashPaidAmount("");
+    setPaymentError("");
     setModal("PAYMENT_METHODS");
   };
 
@@ -245,11 +322,27 @@ export default function POSDashboard() {
     let finalCash = 0;
     let finalBank = 0;
     
-    if (paymentMethod === "كاش") { finalCash = totalAmount; }
-    else if (paymentMethod === "مصرف") { finalBank = totalAmount; }
+    setPaymentError(""); // تصفير الأخطاء السابقة
+
+    if (paymentMethod === "كاش") { 
+       const paid = parseFloat(cashPaidAmount) || 0;
+       if (paid < totalAmount) {
+         setPaymentError(`خطأ: المبلغ المستلم (${paid.toFixed(2)}) أقل من إجمالي الفاتورة (${totalAmount.toFixed(2)} د.ل).`);
+         return;
+       }
+       finalCash = totalAmount; 
+    }
+    else if (paymentMethod === "مصرف") { 
+       finalBank = totalAmount; 
+    }
     else if (paymentMethod === "نص نص") {
        finalCash = parseFloat(splitCashAmount) || 0;
        finalBank = parseFloat(splitBankAmount) || 0;
+       const splitTotal = finalCash + finalBank;
+       if (Math.abs(splitTotal - totalAmount) > 0.01) {
+         setPaymentError(`خطأ: مجموع القيمة المدفوعة نقداً وبطاقة (${splitTotal.toFixed(2)}) لا يطابق إجمالي الفاتورة (${totalAmount.toFixed(2)} د.ل).`);
+         return;
+       }
     }
 
     // حفظ الطلب في قاعدة البيانات المحلية (Dexie) لربطه بالشاشات الأخرى (CFO/Dashboard)
@@ -384,7 +477,7 @@ export default function POSDashboard() {
       const now = new Date().toLocaleString("ar-SA", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
       const newLog = {
         cashierName: cashierName,
-        tillNo: CASHIER_INFO.tillNo,
+        tillNo: cashierTillNo,
         date: now,
         openingBalance: openingConfirmed ?? 0,
         deliveredAmount: actual,
@@ -426,10 +519,10 @@ export default function POSDashboard() {
               <motion.div key="form" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
                 className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
                 <div className="flex items-center gap-3 mb-6 p-4 bg-orange-50 rounded-2xl border border-orange-100">
-                  <img src={CASHIER_INFO.avatar} alt="avatar" className="w-10 h-10 rounded-xl object-cover" />
+                  <img src={cashierAvatar} alt="avatar" className="w-10 h-10 rounded-xl object-cover" />
                   <div>
                     <p className="font-bold text-gray-900 text-sm">{cashierName}</p>
-                    <p className="text-xs text-orange-500 font-semibold">{sessionBranch} — خزينة {CASHIER_INFO.tillNo}</p>
+                    <p className="text-xs text-orange-500 font-semibold">{sessionBranch} — خزينة {cashierTillNo}</p>
                   </div>
                 </div>
 
@@ -498,10 +591,10 @@ export default function POSDashboard() {
 
           {/* بادج الكاشير */}
           <div className="bg-orange-50 border border-orange-100 rounded-2xl p-3 mb-6 flex items-center gap-3">
-            <img src={CASHIER_INFO.avatar} alt="avatar" className="w-9 h-9 rounded-xl object-cover" />
+            <img src={cashierAvatar} alt="avatar" className="w-9 h-9 rounded-xl object-cover" />
             <div>
               <p className="text-sm font-bold text-gray-900 leading-none mb-0.5">{cashierName}</p>
-              <p className="text-xs text-orange-500 font-semibold">{sessionBranch} · خزينة #{CASHIER_INFO.tillNo}</p>
+              <p className="text-xs text-orange-500 font-semibold">{sessionBranch} · خزينة #{cashierTillNo}</p>
             </div>
           </div>
 
@@ -574,6 +667,7 @@ export default function POSDashboard() {
         <div className="flex-1 overflow-auto">
           {activeTab === "الطلبات" && (
             <OrderTab
+              menuCategories={MENU_CATEGORIES}
               orders={orders}
               filteredProducts={filteredProducts}
               activeCategory={activeCategory}
@@ -584,6 +678,10 @@ export default function POSDashboard() {
               addToCart={addToCart}
               isInCart={isInCart}
               cycleStatus={cycleStatus}
+              branchCCOrders={branchCCOrders}
+              onApproveCC={handleApproveCC}
+              onRejectCC={handleRejectCC}
+              onPrintCC={handlePrintCC}
             />
           )}
           {activeTab === "المعاملات" && (
@@ -805,7 +903,7 @@ export default function POSDashboard() {
                                 </td>
                                 <td className="px-5 py-3.5 text-center font-mono font-bold text-gray-500">{log.openingBalance.toFixed(2)}</td>
                                 <td className="px-5 py-3.5 text-center font-mono font-bold text-gray-900 bg-gray-50/50">{log.expectedBalance.toFixed(2)}</td>
-                                <td className="px-5 py-3.5 text-center font-mono font-bold text-blue-600 bg-blue-50/20">{log.deliveredAmount.toFixed(2)}</td>
+                                <td className="px-5 py-3.5 text-center font-mono font-bold text-orange-600 bg-orange-50/20">{log.deliveredAmount.toFixed(2)}</td>
                                 <td className="px-5 py-3.5 text-center">
                                   {log.deficit > 0
                                     ? <span className="inline-block bg-red-50 text-red-600 border border-red-200 font-bold text-xs px-2.5 py-1 rounded-lg font-mono min-w-[70px] shadow-sm">-{log.deficit.toFixed(2)}</span>
@@ -924,10 +1022,28 @@ export default function POSDashboard() {
                   </div>
 
                   <form onSubmit={finalizeOrder} className="space-y-4">
+                    {paymentError && (
+                      <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-200 text-sm font-bold flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 shrink-0" /> {paymentError}
+                      </div>
+                    )}
+
                     {paymentMethod === "كاش" && (
-                      <div className="bg-green-50 text-green-700 p-4 rounded-xl border border-green-100 text-sm font-bold flex items-center gap-3">
-                        <CheckCircle2 className="w-5 h-5 mx-auto lg:mx-0" />
-                        سيتم إضافة القيمة النقدية إلى الخزينة الحالية.
+                      <div className="space-y-3 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                        <div>
+                          <label className="text-xs font-bold text-gray-500 block mb-1">المبلغ المستلم من الزبون (د.ل) *</label>
+                          <input type="number" step="0.5" required min={totalAmount} value={cashPaidAmount} onChange={e => { setCashPaidAmount(e.target.value); setPaymentError(""); }} placeholder="0.00" className="w-full bg-white border border-gray-200 focus:border-[#ff6b00] rounded-xl px-3 py-3 outline-none font-mono text-xl text-center" />
+                        </div>
+                        {Number(cashPaidAmount) > totalAmount && (
+                          <div className="bg-orange-50 text-orange-700 p-3 rounded-lg border border-orange-100 text-sm font-bold flex justify-between items-center">
+                            <span>الباقي المرجع للزبون:</span>
+                            <span className="font-mono text-xl text-green-600">{(Number(cashPaidAmount) - totalAmount).toFixed(2)} د.ل</span>
+                          </div>
+                        )}
+                        <div className="bg-green-50 text-green-700 p-3 rounded-lg border border-green-100 text-xs font-bold flex items-center gap-2 mt-2">
+                          <CheckCircle2 className="w-4 h-4 shrink-0" />
+                          سيتم إضافة القيمة النقدية إلى الخزينة الحالية.
+                        </div>
                       </div>
                     )}
 
@@ -956,11 +1072,11 @@ export default function POSDashboard() {
                         <div className="grid grid-cols-2 gap-3">
                           <div>
                             <label className="text-xs font-bold text-gray-500 block mb-1">دفع نقداً</label>
-                            <input type="number" step="0.5" value={splitCashAmount} onChange={e => setSplitCashAmount(e.target.value)} placeholder="0.00" className="w-full bg-white border border-gray-200 focus:border-[#ff6b00] rounded-xl px-3 py-2 text-center outline-none font-mono" />
+                            <input type="number" step="0.5" value={splitCashAmount} onChange={e => { setSplitCashAmount(e.target.value); setPaymentError(""); }} placeholder="0.00" className="w-full bg-white border border-gray-200 focus:border-[#ff6b00] rounded-xl px-3 py-2 text-center outline-none font-mono" />
                           </div>
                           <div>
                             <label className="text-xs font-bold text-gray-500 block mb-1">دفع إلكتروني</label>
-                            <input type="number" step="0.5" value={splitBankAmount} onChange={e => setSplitBankAmount(e.target.value)} placeholder="0.00" className="w-full bg-white border border-gray-200 focus:border-[#ff6b00] rounded-xl px-3 py-2 text-center outline-none font-mono" />
+                            <input type="number" step="0.5" value={splitBankAmount} onChange={e => { setSplitBankAmount(e.target.value); setPaymentError(""); }} placeholder="0.00" className="w-full bg-white border border-gray-200 focus:border-[#ff6b00] rounded-xl px-3 py-2 text-center outline-none font-mono" />
                           </div>
                         </div>
                         {splitBankAmount && Number(splitBankAmount) > 0 && (
@@ -1211,20 +1327,126 @@ export default function POSDashboard() {
 }
 
 // ─── تبويب الطلبات ──────────────────────────────────────────
-function OrderTab({ orders, filteredProducts, activeCategory, setActiveCategory, searchQuery, setSearchQuery, cartItems, addToCart, isInCart, cycleStatus }: {
+function OrderTab({ orders, filteredProducts, activeCategory, setActiveCategory, searchQuery, setSearchQuery, cartItems, addToCart, isInCart, cycleStatus, menuCategories, branchCCOrders, onApproveCC, onRejectCC, onPrintCC }: {
   orders: Order[]; filteredProducts: Product[]; activeCategory: string; setActiveCategory: (c: string) => void;
   searchQuery: string; setSearchQuery: (q: string) => void; cartItems: any[]; addToCart: (p: Product) => void;
-  isInCart: (id: number) => boolean; cycleStatus: (id: string) => void;
+  isInCart: (id: number) => boolean; cycleStatus: (id: string) => void; menuCategories: string[];
+  branchCCOrders: any[]; onApproveCC: (id: number) => void; onRejectCC: (id: number) => void; onPrintCC: (o: any) => void;
 }) {
   const statusColor: Record<OrderStatus, string> = {
     "قيد التحضير":   "bg-red-50 text-red-500 border-red-100",
-    "جاري التوصيل": "bg-blue-50 text-blue-500 border-blue-100",
+    "جاري التوصيل": "bg-sky-50 text-sky-500 border-sky-100",
     "مكتمل":         "bg-green-50 text-green-600 border-green-100",
   };
 
   return (
     <div className="p-6 h-full overflow-y-auto">
-      {/* قائمة الطلبات النشطة الواردة م نمركز الاتصالات */}
+
+      {/* ── طلبات مركز الاتصالات الواردة ── */}
+      <div className="mb-8">
+        <div className="flex flex-col md:flex-row items-center justify-between mb-4 bg-indigo-50 border border-indigo-200 p-4 rounded-2xl">
+          <div className="flex items-center gap-3">
+            <div className="bg-white p-2.5 rounded-xl shadow-sm border border-indigo-100">
+              <Phone className="w-6 h-6 text-indigo-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-extrabold text-indigo-700">طلبات مركز الاتصالات</h2>
+              <p className="text-xs text-gray-500 font-bold">طلبات جديدة تنتظر الموافقة والطباعة</p>
+            </div>
+          </div>
+          <span className={`text-sm font-extrabold px-3 py-1.5 rounded-full shadow-sm mt-3 md:mt-0 border ${
+            branchCCOrders.length > 0
+              ? "bg-indigo-600 text-white border-indigo-600 animate-pulse"
+              : "bg-white text-indigo-500 border-indigo-200"
+          }`}>
+            {branchCCOrders.length} طلب جديد
+          </span>
+        </div>
+
+        {branchCCOrders.length === 0 ? (
+          <div className="bg-white border border-dashed border-indigo-200 rounded-2xl p-8 text-center">
+            <Phone className="w-10 h-10 text-indigo-200 mx-auto mb-2" />
+            <p className="text-sm text-gray-400 font-medium">لا توجد طلبات واردة من مركز الاتصالات حالياً</p>
+          </div>
+        ) : (
+          <div className="flex gap-4 overflow-x-auto pb-3">
+            <AnimatePresence>
+              {branchCCOrders.map(order => (
+                <motion.div key={order.id}
+                  initial={{ opacity: 0, scale: 0.9, x: -20 }}
+                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, x: 20 }}
+                  className="min-w-[280px] bg-white border-2 border-indigo-200 rounded-2xl p-4 shadow-lg shadow-indigo-100 relative overflow-hidden flex-shrink-0">
+                  {/* شريط علوي ملون */}
+                  <div className="absolute top-0 right-0 left-0 h-1.5 bg-gradient-to-r from-indigo-500 to-purple-500" />
+
+                  {/* رأس الكارد */}
+                  <div className="flex justify-between items-start mt-1 mb-3">
+                    <div>
+                      <p className="text-xs font-extrabold text-indigo-600">{order.orderNumber}</p>
+                      <p className="text-sm font-extrabold text-gray-900 mt-0.5">{order.customerName}</p>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${
+                      order.orderType === "توصيل"
+                        ? "bg-sky-50 text-sky-600 border-sky-200"
+                        : "bg-green-50 text-green-600 border-green-200"
+                    }`}>{order.orderType}</span>
+                  </div>
+
+                  {/* تفاصيل */}
+                  <div className="space-y-1.5 mb-3">
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <Phone className="w-3.5 h-3.5 text-indigo-400" />
+                      <span dir="ltr" className="font-bold">{order.customerPhone}</span>
+                    </div>
+                    {order.address && (
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <MapPin className="w-3.5 h-3.5 text-red-400" />
+                        <span>{order.address}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* المنتجات */}
+                  <div className="bg-gray-50 rounded-xl p-2.5 mb-3 text-xs">
+                    {(order.items as any[]).map((item: any, idx: number) => (
+                      <div key={idx} className="flex justify-between text-gray-600 py-0.5">
+                        <span>{item.name} × {item.quantity}</span>
+                        <span className="font-bold text-[#ff6b00]">{(item.price * item.quantity).toFixed(2)}</span>
+                      </div>
+                    ))}
+                    <div className="border-t border-gray-200 mt-1.5 pt-1.5 flex justify-between font-extrabold text-gray-900">
+                      <span>الإجمالي</span>
+                      <span className="text-[#ff6b00]">{order.totalAmount.toFixed(2)} د.ل</span>
+                    </div>
+                  </div>
+
+                  {order.notes && (
+                    <p className="text-[10px] text-gray-400 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1 mb-3">
+                      ملاحظة: {order.notes}
+                    </p>
+                  )}
+
+                  {/* الأزرار */}
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <button onClick={() => { onApproveCC(order.id!); onPrintCC(order); }}
+                      className="col-span-2 flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 rounded-xl transition-all active:scale-95 shadow-md shadow-indigo-200">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> موافقة وطباعة
+                    </button>
+                    <button onClick={() => onRejectCC(order.id!)}
+                      className="flex items-center justify-center gap-1 bg-red-50 hover:bg-red-100 text-red-500 font-bold text-xs py-2.5 rounded-xl border border-red-200 transition-all active:scale-95">
+                      <ThumbsDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        )}
+      </div>
+
+      {/* ── الطلبات الداخلية (POS) - مخفية بطلب المستخدم ── */}
+      {false && (
       <div className="mb-8">
         <div className="flex flex-col md:flex-row items-center justify-between mb-4 bg-orange-50 border border-orange-100 p-4 rounded-2xl">
           <div className="flex items-center gap-3">
@@ -1232,12 +1454,12 @@ function OrderTab({ orders, filteredProducts, activeCategory, setActiveCategory,
               <Volume2 className="w-6 h-6 text-[#ff6b00]" />
             </div>
             <div>
-              <h2 className="text-lg font-extrabold text-[#ff6b00]">طلبات مركز المبيعات والاتصالات</h2>
-              <p className="text-xs text-gray-500 font-bold">الطلبات الواردة للدليفري واستلام عبر الفرع</p>
+              <h2 className="text-lg font-extrabold text-[#ff6b00]">طلبات الكاشير النشطة</h2>
+              <p className="text-xs text-gray-500 font-bold">الطلبات المُسجَّلة من نقطة البيع</p>
             </div>
           </div>
           <span className="bg-white border border-[#ff6b00]/30 text-[#ff6b00] text-sm font-extrabold px-3 py-1.5 rounded-full shadow-sm mt-3 md:mt-0">
-            {orders.filter(o => o.status !== "مكتمل").length} طلبات جديدة
+            {orders.filter(o => o.status !== "مكتمل").length} طلبات نشطة
           </span>
         </div>
         
@@ -1246,8 +1468,7 @@ function OrderTab({ orders, filteredProducts, activeCategory, setActiveCategory,
             <button key={order.id} onClick={() => cycleStatus(order.id)}
               className="min-w-[190px] bg-white border border-gray-100 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-[#ff6b00]/30 transition-all text-right group relative overflow-hidden">
               {order.status === "قيد التحضير" && <div className="absolute top-0 right-0 w-full h-1 bg-gradient-to-r from-red-400 to-[#ff6b00]" />}
-              {order.status === "جاري التوصيل" && <div className="absolute top-0 right-0 w-full h-1 bg-blue-400" />}
-              
+              {order.status === "جاري التوصيل" && <div className="absolute top-0 right-0 w-full h-1 bg-sky-400" />}
               <div className="flex justify-between items-center mt-1 mb-2">
                 <div className="flex items-center gap-1.5 text-gray-900 font-bold text-sm">
                   <ClipboardList className="w-4 h-4 text-gray-400" />
@@ -1268,8 +1489,15 @@ function OrderTab({ orders, filteredProducts, activeCategory, setActiveCategory,
               )}
             </button>
           ))}
+          {orders.length === 0 && (
+            <div className="w-full text-center py-8 text-gray-300">
+              <ClipboardList className="w-10 h-10 mx-auto mb-2" />
+              <p className="text-sm">لا توجد طلبات POS حالياً</p>
+            </div>
+          )}
         </div>
       </div>
+      )}
 
       {/* قائمة المنتجات */}
       <div>
@@ -1283,7 +1511,7 @@ function OrderTab({ orders, filteredProducts, activeCategory, setActiveCategory,
         </div>
 
         <div className="flex items-center gap-5 border-b border-gray-200 mb-5 overflow-x-auto">
-          {MENU_CATEGORIES.map(cat => (
+          {menuCategories.map(cat => (
             <button key={cat} onClick={() => setActiveCategory(cat)}
               className={`pb-3 text-sm font-bold whitespace-nowrap transition-colors relative ${activeCategory === cat ? "text-[#ff6b00]" : "text-gray-500 hover:text-gray-900"}`}>
               {cat}

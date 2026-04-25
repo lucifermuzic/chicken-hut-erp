@@ -5,10 +5,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   PackageSearch, FileText, Truck, ArrowRightLeft,
   CheckCircle2, AlertCircle, Building, DollarSign,
-  ClipboardList, Search, Plus, Clock, LogOut, PackageCheck
+  ClipboardList, Search, Plus, Clock, LogOut, PackageCheck,
+  Users, Package, ShoppingBag, Send
 } from "lucide-react";
 
-import { db } from "@/lib/db";
+import { db, seedDatabase } from "@/lib/db";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect } from "react";
 import type { InventoryItem, Invoice, BranchRequest } from "@/lib/db";
@@ -18,27 +19,8 @@ import { clearSession } from "@/lib/auth";
 type StockItem = InventoryItem;
 
 // ─── أنواع ──────────────────────────────────────────────────
-type TabType = "المخزون الرئيسي" | "توريد الموردين" | "اعتماد الفواتير (للتجربة)" | "صرف المخزون";
+type TabType = "المخزون الرئيسي" | "توريد الموردين" | "اعتماد الفواتير" | "صرف المخزون" | "إدارة الموردين" | "طلبات الشراء";
 
-// ─── بيانات وهمية مبدئية للتأسيس فقط ─────────────────────────────────────
-const INITIAL_STOCK = [
-  { id: 1, name: "دجاج كامل (مبرّد)", category: "لحوم", unit: "كيلو", qty: 250, min: 100, avgPrice: 8.5, isSynced: false, branchQtys: { "فرع وسط البلاد": 50, "فرع الحدائق": 20 } },
-  { id: 2, name: "شريحة برجر لحم", category: "لحوم", unit: "قطعة", qty: 1500, min: 500, avgPrice: 1.2, isSynced: false, branchQtys: { "فرع وسط البلاد": 200 } },
-  { id: 3, name: "خبز برجر (سمسم)", category: "مخبوزات", unit: "قطعة", qty: 1000, min: 300, avgPrice: 0.35, isSynced: false, branchQtys: { "فرع وسط البلاد": 150 } },
-  { id: 4, name: "طماطم معجون", category: "خضراوات ومعلبات", unit: "كيلو", qty: 40, min: 50, avgPrice: 5.0, isSynced: false, branchQtys: { "فرع وسط البلاد": 10 } },
-  { id: 5, name: "جبنة شيدر (شرائح)", category: "ألبان", unit: "شريحة", qty: 3000, min: 800, avgPrice: 0.4, isSynced: false, branchQtys: { "فرع وسط البلاد": 300 } },
-];
-
-const INITIAL_INVOICES = [
-  { id: "INV-8021", supplier: "مزارع السنبلة", itemId: 4, qty: 200, unitPrice: 7.0, date: "2026-04-18 09:30 AM", status: "قيد المراجعة" as const, isSynced: false },
-];
-
-const INITIAL_REQUESTS = [
-  { id: "REQ-001", branch: "فرع وسط البلاد", itemId: 4, qtyRequested: 20, status: "جديد" as const, isSynced: false },
-  { id: "REQ-002", branch: "فرع الحدائق", itemId: 1, qtyRequested: 50, status: "جديد" as const, isSynced: false },
-];
-
-const SUPPLIERS = ["شركة النسيم الغذائية", "مزارع السنبلة", "الشركة الليبية لاستيراد اللحوم", "مورد أكياس التغليف والمواد"];
 const BRANCHES = ["فرع وسط البلاد", "فرع الحدائق", "فرع فينيسيا"];
 
 // ─── المكون الرئيسي ─────────────────────────────────────────
@@ -51,18 +33,12 @@ export default function StorekeeperPage() {
   const mainStock = useLiveQuery(() => db.inventory.toArray()) || [];
   const invoices = useLiveQuery(() => db.invoices.toArray()) || [];
   const requests = useLiveQuery(() => db.branchRequests.toArray()) || [];
+  const purchaseRequests = useLiveQuery(() => db.purchaseRequests.toArray()) || [];
+  const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
 
   // تأسيس قاعدة البيانات في حال كانت فارغة
   useEffect(() => {
-    const seed = async () => {
-      const stockCount = await db.inventory.count();
-      if (stockCount === 0) {
-        await db.inventory.bulkAdd(INITIAL_STOCK);
-        await db.invoices.bulkAdd(INITIAL_INVOICES);
-        await db.branchRequests.bulkAdd(INITIAL_REQUESTS);
-      }
-    };
-    seed();
+    seedDatabase();
   }, []);
 
   const showSuccess = (msg: string) => {
@@ -140,46 +116,66 @@ export default function StorekeeperPage() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50 text-gray-900 font-sans" dir="rtl">
+    <div className="flex h-screen bg-[#f8f9fd] text-gray-900 font-sans" dir="rtl">
       {/* ── القائمة الجانبية (Sidebar) ── */}
       <aside className="w-72 bg-white border-l border-gray-100 flex flex-col shadow-[rgba(0,0,0,0.02)_0px_0px_20px] shrink-0 z-20">
         <div className="p-6 border-b border-gray-50 flex items-center gap-3">
-          <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+          <div className="w-12 h-12 bg-gradient-to-br from-[#ff6b00] to-[#ff985c] rounded-2xl flex items-center justify-center shadow-lg shadow-orange-500/20">
             <PackageSearch className="w-6 h-6 text-white" />
           </div>
           <div>
             <h1 className="text-xl font-extrabold text-gray-900 tracking-tight leading-tight">المخزن الرئيسي</h1>
-            <p className="text-xs text-blue-500 font-bold uppercase tracking-wider">لوحة أمين المخازن</p>
+            <p className="text-xs text-orange-500 font-bold uppercase tracking-wider">لوحة أمين المخازن</p>
           </div>
         </div>
 
         <div className="p-4 flex-1 overflow-y-auto space-y-1">
           <p className="text-[10px] font-extrabold text-gray-400 mb-3 px-3 tracking-widest uppercase">العمليات والمتابعة</p>
           
-          {[
-            { id: "المخزون الرئيسي", icon: Building },
-            { id: "توريد الموردين", icon: FileText },
-            { id: "اعتماد الفواتير (للتجربة)", icon: CheckCircle2 },
-            { id: "صرف المخزون", icon: Truck },
-          ].map(tab => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id as TabType)}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all font-bold text-sm relative ${
-                  isActive ? "bg-blue-50 text-blue-600 shadow-sm" : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
-                }`}>
-                <Icon className={`w-5 h-5 ${isActive ? "text-blue-600" : "text-gray-400"}`} strokeWidth={isActive ? 2.5 : 2} />
-                <span>{tab.id}</span>
-                {tab.id === "اعتماد الفواتير (للتجربة)" && invoices.some(i => i.status==="قيد المراجعة") && (
-                  <span className="w-2.5 h-2.5 bg-red-500 rounded-full absolute left-4 border-2 border-white shadow-sm" />
-                )}
-                {tab.id === "صرف المخزون" && requests.some(r => r.status==="جديد") && (
-                  <span className="w-2.5 h-2.5 bg-red-500 rounded-full absolute left-4 border-2 border-white shadow-sm" />
-                )}
-              </button>
-            );
-          })}
+          {
+            [
+              { id: "المخزون الرئيسي", icon: Building },
+              { id: "توريد الموردين", icon: FileText },
+              { id: "اعتماد الفواتير", icon: CheckCircle2 },
+              { id: "صرف المخزون", icon: Truck },
+              { id: "إدارة الموردين", icon: Users },
+              { id: "طلبات الشراء", icon: ShoppingBag },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as TabType)}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all font-bold text-sm relative ${
+                    isActive
+                      ? "bg-orange-50 text-orange-600 shadow-sm"
+                      : "text-gray-500 hover:bg-[#f8f9fd] hover:text-gray-900"
+                  }`}
+                >
+                  <Icon
+                    className={`w-5 h-5 ${
+                      isActive ? "text-orange-600" : "text-gray-400"
+                    }`}
+                    strokeWidth={isActive ? 2.5 : 2}
+                  />
+                  <span>{tab.id}</span>
+                  {tab.id === "اعتماد الفواتير" &&
+                    invoices.some((i) => i.status === "قيد المراجعة") && (
+                      <span className="w-2.5 h-2.5 bg-red-500 rounded-full absolute left-4 border-2 border-white shadow-sm" />
+                    )}
+                  {tab.id === "صرف المخزون" &&
+                    requests.some((r) => r.status === "جديد") && (
+                      <span className="w-2.5 h-2.5 bg-red-500 rounded-full absolute left-4 border-2 border-white shadow-sm" />
+                    )}
+                  {tab.id === "طلبات الشراء" &&
+                    purchaseRequests.some((r) => r.status === "معلق") && (
+                      <span className="w-2.5 h-2.5 bg-orange-500 rounded-full absolute left-4 border-2 border-white shadow-sm" />
+                    )}
+                </button>
+              );
+            })
+          }
         </div>
 
         <div className="p-4 border-t border-gray-50 shrink-0">
@@ -207,16 +203,18 @@ export default function StorekeeperPage() {
           <h2 className="text-xl font-extrabold text-gray-800">{activeTab}</h2>
           <div className="flex items-center gap-3">
             <span className="text-sm font-bold text-gray-500">أمين المخزن:</span>
-            <span className="bg-blue-50 text-blue-800 text-sm font-extrabold px-3 py-1.5 rounded-lg border border-blue-100">رائد حسن</span>
+            <span className="bg-orange-50 text-orange-800 text-sm font-extrabold px-3 py-1.5 rounded-lg border border-orange-100">رائد حسن</span>
           </div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-8">
           <div className="max-w-6xl mx-auto">
             {activeTab === "المخزون الرئيسي" && <MainStockView stock={mainStock} />}
-            {activeTab === "توريد الموردين" && <IncomingInvoicesView stock={mainStock} onAddInvoice={handleAddInvoice} invoices={invoices} />}
-            {activeTab === "اعتماد الفواتير (للتجربة)" && <ApprovalsView stock={mainStock} invoices={invoices} onApprove={handleApproveInvoice} />}
+            {activeTab === "توريد الموردين" && <IncomingInvoicesView stock={mainStock} onAddInvoice={handleAddInvoice} invoices={invoices} suppliers={suppliers} />}
+            {activeTab === "اعتماد الفواتير" && <ApprovalsView stock={mainStock} invoices={invoices} onApprove={handleApproveInvoice} />}
             {activeTab === "صرف المخزون" && <OutboundFulfillmentView stock={mainStock} requests={requests} logs={outboundLogs} onDispatch={handleDispatch} />}
+            {activeTab === "إدارة الموردين" && <SuppliersView suppliers={suppliers} onAdd={showSuccess} />}
+            {activeTab === "طلبات الشراء" && <PurchaseRequestsView stock={mainStock} suppliers={suppliers} purchaseRequests={purchaseRequests} onAdd={showSuccess} />}
           </div>
         </div>
       </main>
@@ -233,14 +231,14 @@ function MainStockView({ stock }: { stock: StockItem[] }) {
       {/* ملخص المالي */}
       <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm flex items-center justify-between relative overflow-hidden">
         <div className="relative z-10 flex items-center gap-4">
-          <div className="w-14 h-14 bg-indigo-50 border border-indigo-100 text-indigo-500 rounded-2xl flex items-center justify-center">
+          <div className="w-14 h-14 bg-amber-50 border border-amber-100 text-amber-500 rounded-2xl flex items-center justify-center">
             <DollarSign className="w-8 h-8" />
           </div>
           <div>
             <p className="text-gray-500 font-bold text-xs mb-1">إجمالي قيمة المواد المخزنة</p>
             <div className="flex items-baseline gap-2">
               <span className="text-3xl font-extrabold text-gray-900 font-mono tracking-tight">{totalValue.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
-              <span className="text-base font-bold text-indigo-500">د.ل</span>
+              <span className="text-base font-bold text-amber-500">د.ل</span>
             </div>
           </div>
         </div>
@@ -248,16 +246,16 @@ function MainStockView({ stock }: { stock: StockItem[] }) {
       </div>
 
       <div className="bg-white border border-gray-100 rounded-3xl overflow-hidden shadow-sm">
-        <div className="px-6 py-5 border-b border-gray-50 flex items-center justify-between bg-gray-50/50">
+        <div className="px-6 py-5 border-b border-gray-50 flex items-center justify-between bg-[#f8f9fd]/50">
           <h3 className="text-lg font-bold text-gray-900">الأصناف الحالية (Main Warehouse)</h3>
         </div>
         <table className="w-full text-right border-collapse">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-100">
+            <tr className="bg-[#f8f9fd] border-b border-gray-100">
               <th className="px-6 py-4 text-xs font-bold text-gray-400 w-16">#</th>
               <th className="px-6 py-4 text-xs font-bold text-gray-500">الصنف</th>
               <th className="px-6 py-4 text-xs font-bold text-gray-500">التصنيف</th>
-              <th className="px-6 py-4 text-xs font-bold text-blue-600 text-center">الرصيد المتاح</th>
+              <th className="px-6 py-4 text-xs font-bold text-orange-600 text-center">الرصيد المتاح</th>
               <th className="px-6 py-4 text-xs font-bold text-green-600 text-center">تكلفة الوحدة (المتوسط)</th>
               <th className="px-6 py-4 text-xs font-bold text-gray-500 text-center">إجمالي القيمة</th>
               <th className="px-6 py-4 text-xs font-bold text-gray-500 text-center">الحالة</th>
@@ -268,11 +266,11 @@ function MainStockView({ stock }: { stock: StockItem[] }) {
               const isLow = item.qty <= item.min;
               const itemTotalValue = item.qty * item.avgPrice;
               return (
-                <tr key={item.id} className="hover:bg-gray-50/50 transition">
+                <tr key={item.id} className="hover:bg-[#f8f9fd]/50 transition">
                   <td className="px-6 py-4 text-xs font-bold text-gray-400">{item.id}</td>
                   <td className="px-6 py-4 text-sm font-extrabold text-gray-900">{item.name}</td>
                   <td className="px-6 py-4 text-xs font-bold text-gray-500"><span className="bg-gray-100 px-2 py-1 rounded-md">{item.category}</span></td>
-                  <td className="px-6 py-4 text-sm font-mono font-bold text-center text-blue-700 bg-blue-50/30">
+                  <td className="px-6 py-4 text-sm font-mono font-bold text-center text-orange-700 bg-orange-50/30">
                     {item.qty} <span className="text-[10px] text-gray-400 font-sans">{item.unit}</span>
                   </td>
                   <td className="px-6 py-4 text-sm font-mono font-bold text-center text-green-600 bg-green-50/30">
@@ -287,7 +285,7 @@ function MainStockView({ stock }: { stock: StockItem[] }) {
                         <AlertCircle className="w-3.5 h-3.5" /> نفاد مبكر
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 bg-gray-50 text-gray-500 border border-gray-100 px-2 py-1 rounded-lg text-[10px] font-bold">
+                      <span className="inline-flex items-center gap-1 bg-[#f8f9fd] text-gray-500 border border-gray-100 px-2 py-1 rounded-lg text-[10px] font-bold">
                         متوفر
                       </span>
                     )}
@@ -303,16 +301,39 @@ function MainStockView({ stock }: { stock: StockItem[] }) {
 }
 
 // ─── 2. المكون: إدخال الفواتير والموردين ──────────────────────
-function IncomingInvoicesView({ stock, onAddInvoice, invoices }: { stock: StockItem[], onAddInvoice: any, invoices: Invoice[] }) {
+function IncomingInvoicesView({ stock, onAddInvoice, invoices, suppliers }: { stock: StockItem[], onAddInvoice: any, invoices: Invoice[], suppliers: any[] }) {
   const [supplier, setSupplier] = useState("");
   const [itemId, setItemId] = useState("");
   const [qty, setQty] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [newItemName, setNewItemName] = useState("");
+  const [newItemUnit, setNewItemUnit] = useState("كجم");
+  const [newItemCategory, setNewItemCategory] = useState("مواد خام");
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onAddInvoice({ supplier, itemId: Number(itemId), qty: Number(qty), unitPrice: parseFloat(unitPrice) });
+    let finalItemId = Number(itemId);
+
+    if (itemId === "NEW") {
+      if (!newItemName) return;
+      // إضافة الصنف الجديد فوراً للمخزون برصيد صفر
+      const newId = await db.inventory.add({
+        name: newItemName,
+        category: newItemCategory,
+        qty: 0,
+        unit: newItemUnit,
+        min: 10,
+        avgPrice: 0,
+        branchQtys: {},
+        isSynced: false
+      });
+      finalItemId = newId as number;
+    }
+
+    onAddInvoice({ supplier, itemId: finalItemId, qty: Number(qty), unitPrice: parseFloat(unitPrice) });
     setSupplier(""); setItemId(""); setQty(""); setUnitPrice("");
+    setNewItemName(""); setNewItemUnit("كجم"); setNewItemCategory("مواد خام");
   };
 
   const pendingInvoices = invoices.filter(i => i.status === "قيد المراجعة");
@@ -322,31 +343,57 @@ function IncomingInvoicesView({ stock, onAddInvoice, invoices }: { stock: StockI
       {/* النموذج المباشر لتوريد المواد */}
       <div className="lg:col-span-5 bg-white border border-gray-100 rounded-3xl p-8 shadow-sm h-fit">
         <h3 className="text-xl font-extrabold text-gray-900 mb-2">تسجيل إيصال توريد مستلم</h3>
-        <p className="text-xs text-gray-500 mb-6 font-bold leading-relaxed">قم بتسجيل الفاتورة الحقيقية للمواد المستلمة اليوم. لن يتم إضافة المورد للمخزن ولن يتأثر متوسط السعر إلا بعد مراجعة <strong className="text-blue-500">القسم المالي والمحاسبة</strong> للاعتماد النهائي.</p>
+        <p className="text-xs text-gray-500 mb-6 font-bold leading-relaxed">قم بتسجيل الفاتورة الحقيقية للمواد المستلمة اليوم. لن يتم إضافة المورد للمخزن ولن يتأثر متوسط السعر إلا بعد مراجعة <strong className="text-orange-500">القسم المالي والمحاسبة</strong> للاعتماد النهائي.</p>
         
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="text-xs font-bold text-gray-500 block mb-2">بيان واسم المُورّد</label>
-            <select value={supplier} onChange={e => setSupplier(e.target.value)} required className="w-full bg-gray-50 border-2 border-gray-100 focus:border-blue-500 rounded-xl px-4 py-3 outline-none font-bold">
+            <select value={supplier} onChange={e => setSupplier(e.target.value)} required className="w-full bg-[#f8f9fd] border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold">
               <option value="">اختار المورد...</option>
-              {SUPPLIERS.map(s => <option key={s} value={s}>{s}</option>)}
+              {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
             </select>
           </div>
           <div>
             <label className="text-xs font-bold text-gray-500 block mb-2">الصنف والتعبئة</label>
-            <select value={itemId} onChange={e => setItemId(e.target.value)} required className="w-full bg-gray-50 border-2 border-gray-100 focus:border-blue-500 rounded-xl px-4 py-3 outline-none font-bold">
+            <select value={itemId} onChange={e => setItemId(e.target.value)} required className="w-full bg-[#f8f9fd] border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold">
               <option value="">تحديد المادة الغذائية/التشغيلية...</option>
+              <option value="NEW">➕ إضافة صنف جديد (غير موجود بالقائمة)...</option>
               {stock.map(s => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
             </select>
           </div>
+
+          {itemId === "NEW" && (
+            <div className="bg-orange-50/50 border border-orange-100 p-4 rounded-xl space-y-3">
+              <h4 className="text-xs font-bold text-orange-600 mb-1">تفاصيل الصنف الجديد</h4>
+              <div>
+                <input type="text" value={newItemName} onChange={e => setNewItemName(e.target.value)} required placeholder="اسم الصنف الجديد (مثال: دقيق فاخر 50 كجم)" className="w-full bg-white border-2 border-gray-100 focus:border-orange-400 rounded-lg px-3 py-2 text-sm outline-none font-bold" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <select value={newItemCategory} onChange={e => setNewItemCategory(e.target.value)} className="w-full bg-white border-2 border-gray-100 focus:border-orange-400 rounded-lg px-3 py-2 text-sm outline-none">
+                  <option value="مواد خام">مواد خام</option>
+                  <option value="تغليف وتعبئة">تغليف وتعبئة</option>
+                  <option value="مشروبات">مشروبات</option>
+                  <option value="أخرى">أخرى</option>
+                </select>
+                <select value={newItemUnit} onChange={e => setNewItemUnit(e.target.value)} className="w-full bg-white border-2 border-gray-100 focus:border-orange-400 rounded-lg px-3 py-2 text-sm outline-none">
+                  <option value="كجم">كجم</option>
+                  <option value="جرام">جرام</option>
+                  <option value="لتر">لتر</option>
+                  <option value="قطعة">قطعة</option>
+                  <option value="صندوق">صندوق</option>
+                </select>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-bold text-gray-500 block mb-2">الكمية المستلمة الفعليا</label>
-              <input type="number" min="1" value={qty} onChange={e => setQty(e.target.value)} required placeholder="عدد صحيح..." className="w-full bg-gray-50 border-2 border-gray-100 focus:border-blue-500 rounded-xl px-4 py-3 outline-none font-mono text-center text-lg" />
+              <input type="number" min="1" value={qty} onChange={e => setQty(e.target.value)} required placeholder="عدد صحيح..." className="w-full bg-[#f8f9fd] border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-mono text-center text-lg" />
             </div>
             <div>
-              <label className="text-xs font-bold text-indigo-500 block mb-2">سعر الإفراد (حسب الفاتورة)</label>
-              <input type="number" step="0.01" min="0.01" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} required placeholder="0.00 د.ل" className="w-full bg-indigo-50 border-2 border-indigo-100 focus:border-indigo-500 rounded-xl px-4 py-3 outline-none font-mono text-center text-lg text-indigo-900" />
+              <label className="text-xs font-bold text-amber-500 block mb-2">سعر الإفراد (حسب الفاتورة)</label>
+              <input type="number" step="0.01" min="0.01" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} required placeholder="0.00 د.ل" className="w-full bg-amber-50 border-2 border-amber-100 focus:border-amber-500 rounded-xl px-4 py-3 outline-none font-mono text-center text-lg text-amber-900" />
             </div>
           </div>
           <button type="submit" className="w-full mt-4 flex items-center justify-center gap-2 bg-gray-900 hover:bg-black text-white px-8 py-4 rounded-xl font-bold transition">
@@ -361,7 +408,7 @@ function IncomingInvoicesView({ stock, onAddInvoice, invoices }: { stock: StockI
           <Clock className="w-5 h-5" /> فواتير قيد مراجعة المحاسبين ({pendingInvoices.length})
         </h3>
         {pendingInvoices.length === 0 ? (
-          <div className="bg-gray-50 border border-gray-100 rounded-3xl p-8 text-center">
+          <div className="bg-[#f8f9fd] border border-gray-100 rounded-3xl p-8 text-center">
             <CheckCircle2 className="w-10 h-10 text-gray-300 mx-auto mb-2" />
             <p className="text-gray-500 font-bold text-sm">ممتاز، لا يوجد إيصالات توريد معلقة ومحجوزة حالياً!</p>
           </div>
@@ -378,10 +425,10 @@ function IncomingInvoicesView({ stock, onAddInvoice, invoices }: { stock: StockI
                   <div className="flex-1 w-full">
                     <div className="flex justify-between items-center mb-1">
                       <p className="font-extrabold text-gray-900 text-sm">{inv.supplier}</p>
-                      <span className="text-[10px] font-mono text-gray-400 bg-gray-50 px-2 rounded">{inv.id}</span>
+                      <span className="text-[10px] font-mono text-gray-400 bg-[#f8f9fd] px-2 rounded">{inv.id}</span>
                     </div>
                     <p className="text-xs font-bold text-gray-500 mb-2">{item?.name} — شراء {inv.qty} {item?.unit} بسعر {inv.unitPrice} د.ل للإفراد.</p>
-                    <div className="flex justify-between items-center bg-gray-50 p-2 rounded-lg text-xs font-bold mt-2">
+                    <div className="flex justify-between items-center bg-[#f8f9fd] p-2 rounded-lg text-xs font-bold mt-2">
                       <span className="text-gray-400">إجمالي المطلوب سداده</span>
                       <span className="text-orange-600 font-mono text-sm">{(inv.qty * inv.unitPrice).toFixed(2)} د.ل</span>
                     </div>
@@ -403,22 +450,22 @@ function ApprovalsView({ stock, invoices, onApprove }: { stock: StockItem[], inv
 
   return (
     <div className="space-y-6">
-      <div className="bg-indigo-50 border border-indigo-100 rounded-3xl p-6 shadow-sm">
-        <h3 className="text-lg font-bold text-indigo-900 mb-2">محاكاة قسم الاعتماد المالي</h3>
-        <p className="text-xs text-indigo-700 font-medium">في النظام الواقعي، لا تظهر هذه الشاشة لأمين المخزن بل تكون في لوحة (محاسب الموردين). قمنا بإنشائها هنا **للتجريب فقط**. عندما تقبل الفاتورة هنا، ستُطبّق معادلة <strong>المتوسط المرجح للتكلفة</strong> وتُدمج في المخزون الرئيسي مباشرة وتبلل حساب تكلفة المخزون.</p>
-      </div>
+<div className="bg-amber-50 border border-amber-100 rounded-3xl p-6 shadow-sm">
+          <h3 className="text-lg font-bold text-amber-900 mb-2">اعتماد فواتير الموردين</h3>
+          <p className="text-xs text-amber-700 font-medium">اعتماد الفواتير المستلمة من الموردين. عند الاعتماد ستُطبّق معادلة <strong>المتوسط المرجح للتكلفة</strong> وتُدمج في المخزون الرئيسي.</p>
+        </div>
 
       <div className="bg-white border border-gray-100 rounded-3xl overflow-hidden shadow-sm">
-        <div className="px-6 py-4 border-b border-gray-50 bg-gray-50/50">
+        <div className="px-6 py-4 border-b border-gray-50 bg-[#f8f9fd]/50">
           <h3 className="text-sm font-extrabold text-gray-900">سجل الإيصالات المعلقة</h3>
         </div>
         <table className="w-full text-right border-collapse">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-100">
+            <tr className="bg-[#f8f9fd] border-b border-gray-100">
               <th className="px-6 py-4 text-xs font-bold text-gray-500 w-24">رقم السجل</th>
               <th className="px-6 py-4 text-xs font-bold text-gray-500">المورد والمادة</th>
               <th className="px-6 py-4 text-xs font-bold text-gray-500 text-center">الكمية</th>
-              <th className="px-6 py-4 text-xs font-bold text-blue-600 text-center">التكلفة الجديدة للمادة الفردية</th>
+              <th className="px-6 py-4 text-xs font-bold text-orange-600 text-center">التكلفة الجديدة للمادة الفردية</th>
               <th className="px-6 py-4 text-xs font-bold text-green-600 text-center">الإجراء (للتجربة)</th>
             </tr>
           </thead>
@@ -426,17 +473,17 @@ function ApprovalsView({ stock, invoices, onApprove }: { stock: StockItem[], inv
             {unapproved.map(inv => {
               const item = stock.find(i => i.id === inv.itemId);
               return (
-                <tr key={inv.id} className="hover:bg-gray-50/50 transition">
-                  <td className="px-6 py-4 text-xs font-mono font-bold text-gray-400 bg-gray-50/50">{inv.id}</td>
+                <tr key={inv.id} className="hover:bg-[#f8f9fd]/50 transition">
+                  <td className="px-6 py-4 text-xs font-mono font-bold text-gray-400 bg-[#f8f9fd]/50">{inv.id}</td>
                   <td className="px-6 py-4 text-sm font-extrabold text-gray-900">
                     {inv.supplier}
                     <p className="text-[10px] text-gray-500 font-bold mt-1">المادة المستلمة: ({item?.name})</p>
                   </td>
-                  <td className="px-6 py-4 text-sm font-mono font-bold text-center text-gray-700 bg-gray-50/30">
+                  <td className="px-6 py-4 text-sm font-mono font-bold text-center text-gray-700 bg-[#f8f9fd]/30">
                     {inv.qty} <span className="text-[10px] text-gray-400 font-sans">{item?.unit}</span>
                   </td>
-                  <td className="px-6 py-4 text-sm font-mono font-bold text-center text-blue-600 bg-blue-50/30">
-                    {inv.unitPrice.toFixed(2)} <span className="text-[10px] text-blue-500/60 font-sans">د.ل</span>
+                  <td className="px-6 py-4 text-sm font-mono font-bold text-center text-orange-600 bg-orange-50/30">
+                    {inv.unitPrice.toFixed(2)} <span className="text-[10px] text-orange-500/60 font-sans">د.ل</span>
                   </td>
                   <td className="px-6 py-4 text-center">
                     <button onClick={() => onApprove(inv.id)} className="bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-lg shadow-green-500/20 transition flex items-center justify-center gap-1.5 mx-auto">
@@ -455,6 +502,292 @@ function ApprovalsView({ stock, invoices, onApprove }: { stock: StockItem[], inv
         </table>
       </div>
 
+    </div>
+  );
+}
+
+// ─── 5. إدارة الموردين ──────────────────────────────────────────
+function SuppliersView({ suppliers, onAdd }: { suppliers: any[]; onAdd: (msg: string) => void }) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [category, setCategory] = useState("مواد غذائية");
+  const [notes, setNotes] = useState("");
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await db.suppliers.add({ name, phone, address, category, notes, createdAt: new Date().toISOString() });
+    onAdd(`تم إضافة المورد "${name}" بنجاح`);
+    setName(""); setPhone(""); setAddress(""); setNotes("");
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="lg:col-span-4 bg-white border border-gray-100 rounded-3xl p-7 shadow-sm h-fit">
+        <h3 className="text-xl font-extrabold text-gray-900 mb-1 flex items-center gap-2"><Users className="w-5 h-5 text-orange-500" /> إضافة مورد جديد</h3>
+        <p className="text-xs text-gray-400 font-medium mb-6">أضف موردين لتستخدمهم في طلبات الشراء لاحقاً</p>
+        <form onSubmit={handleAdd} className="space-y-4">
+          <div>
+            <label className="text-xs font-bold text-gray-500 block mb-1">اسم المورد *</label>
+            <input required value={name} onChange={e => setName(e.target.value)} placeholder="مثال: شركة النسيم الغذائية"
+              className="w-full bg-gray-50 border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold" />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 block mb-1">رقم الهاتف</label>
+            <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="09xxxxxxxx" dir="ltr"
+              className="w-full bg-gray-50 border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold" />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 block mb-1">فئة المورد</label>
+            <select value={category} onChange={e => setCategory(e.target.value)}
+              className="w-full bg-gray-50 border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold">
+              {["مواد غذائية","لحوم ودواجن","مخبوزات","تغليف ومواد","مشروبات","أخرى"].map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 block mb-1">العنوان</label>
+            <input value={address} onChange={e => setAddress(e.target.value)} placeholder="عنوان المورد..."
+              className="w-full bg-gray-50 border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold" />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 block mb-1">ملاحظات</label>
+            <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="أي ملاحظات إضافية..."
+              className="w-full bg-gray-50 border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold" />
+          </div>
+          <button type="submit" className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20">
+            <Plus className="w-5 h-5" /> إضافة المورد
+          </button>
+        </form>
+      </div>
+
+      <div className="lg:col-span-8">
+        <h3 className="text-lg font-extrabold text-gray-900 mb-4">قائمة الموردين ({suppliers.length})</h3>
+        {suppliers.length === 0 ? (
+          <div className="bg-gray-50 border border-dashed border-gray-200 rounded-3xl p-12 text-center text-gray-400">
+            <Users className="w-12 h-12 mx-auto mb-3" />
+            <p className="font-bold">لم تُضف أي موردين بعد</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {suppliers.map((s: any) => (
+              <div key={s.id} className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm hover:shadow-md transition">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <p className="font-extrabold text-gray-900">{s.name}</p>
+                    {s.phone && <p className="text-xs text-gray-400 font-mono mt-0.5" dir="ltr">{s.phone}</p>}
+                  </div>
+                  <span className="text-[10px] font-bold bg-orange-50 text-orange-600 border border-orange-100 px-2 py-1 rounded-lg">{s.category}</span>
+                </div>
+                {s.address && <p className="text-xs text-gray-500 font-medium mt-2">{s.address}</p>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── 6. طلبات الشراء ────────────────────────────────────────────
+function PurchaseRequestsView({ stock, suppliers, purchaseRequests, onAdd }: { stock: any[]; suppliers: any[]; purchaseRequests: any[]; onAdd: (msg: string) => void }) {
+  const [supplierName, setSupplierName] = useState("");
+  const [itemName, setItemName] = useState("");
+  const [itemId, setItemId] = useState("");
+  const [qty, setQty] = useState("");
+  const [unit, setUnit] = useState("كجم");
+  const [unitPrice, setUnitPrice] = useState("");
+  const [branch, setBranch] = useState(BRANCHES[0]);
+  const [notes, setNotes] = useState("");
+
+  const total = parseFloat(qty || "0") * parseFloat(unitPrice || "0");
+
+  const [newItemName, setNewItemName] = useState("");
+  const [newItemUnit, setNewItemUnit] = useState("كجم");
+  const [newItemCategory, setNewItemCategory] = useState("مواد خام");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const count = await db.purchaseRequests.count();
+    const requestNumber = `PR-${String(count + 1).padStart(4, "0")}`;
+    
+    let finalItemId: number | undefined;
+    let finalItemName = itemName;
+    let finalUnit = unit;
+
+    if (itemId === "NEW") {
+      if (!newItemName) return;
+      const newId = await db.inventory.add({
+        name: newItemName,
+        category: newItemCategory,
+        qty: 0,
+        unit: newItemUnit,
+        min: 10,
+        avgPrice: 0,
+        branchQtys: {},
+        isSynced: false
+      });
+      finalItemId = newId as number;
+      finalItemName = newItemName;
+      finalUnit = newItemUnit;
+    } else {
+      const selectedItem = stock.find(s => String(s.id) === itemId);
+      finalItemId = selectedItem?.id;
+      finalItemName = selectedItem?.name || itemName;
+      finalUnit = selectedItem?.unit || unit;
+    }
+
+    await db.purchaseRequests.add({
+      requestNumber,
+      supplierName,
+      itemId: finalItemId,
+      itemName: finalItemName,
+      qty: parseFloat(qty),
+      unit: finalUnit,
+      unitPrice: parseFloat(unitPrice),
+      totalAmount: total,
+      branch,
+      notes: notes || undefined,
+      status: "معلق",
+      createdAt: new Date().toISOString(),
+    });
+    onAdd(`تم إرسال طلب الشراء ${requestNumber} للاعتماد`);
+    setSupplierName(""); setItemId(""); setItemName(""); setQty(""); setUnitPrice(""); setNotes("");
+    setNewItemName(""); setNewItemUnit("كجم"); setNewItemCategory("مواد خام");
+  };
+
+  const statusColor: Record<string, string> = {
+    "معلق": "bg-amber-50 text-amber-600 border-amber-200",
+    "معتمد - دين": "bg-blue-50 text-blue-600 border-blue-200",
+    "معتمد - صرف": "bg-green-50 text-green-600 border-green-200",
+    "مرفوض": "bg-red-50 text-red-500 border-red-200",
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* نموذج إنشاء طلب شراء */}
+      <div className="bg-white border border-gray-100 rounded-3xl p-7 shadow-sm">
+        <h3 className="text-xl font-extrabold text-gray-900 mb-1 flex items-center gap-2">
+          <ShoppingBag className="w-5 h-5 text-orange-500" /> إنشاء طلب شراء جديد
+        </h3>
+        <p className="text-xs text-gray-400 font-medium mb-6">سيُرسَل الطلب للمدير للاعتماد (دين أو صرف نقدي)</p>
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div>
+            <label className="text-xs font-bold text-gray-500 block mb-1">المورد *</label>
+            <select value={supplierName} onChange={e => setSupplierName(e.target.value)} required
+              className="w-full bg-gray-50 border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold">
+              <option value="">اختر المورد...</option>
+              {suppliers.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
+              <option value="مورد آخر">مورد آخر</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 block mb-1">الصنف المطلوب *</label>
+            <select value={itemId} onChange={e => setItemId(e.target.value)} required
+              className="w-full bg-gray-50 border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold">
+              <option value="">اختر الصنف...</option>
+              <option value="NEW">➕ إضافة صنف جديد (غير موجود بالقائمة)...</option>
+              {stock.map(s => <option key={s.id} value={String(s.id)}>{s.name} ({s.unit})</option>)}
+            </select>
+          </div>
+          
+          {itemId === "NEW" && (
+            <div className="bg-orange-50/50 border border-orange-100 p-4 rounded-xl space-y-3 md:col-span-2 lg:col-span-3">
+              <h4 className="text-xs font-bold text-orange-600 mb-1">تفاصيل الصنف الجديد</h4>
+              <div>
+                <input type="text" value={newItemName} onChange={e => setNewItemName(e.target.value)} required placeholder="اسم الصنف الجديد (مثال: دقيق فاخر 50 كجم)" className="w-full bg-white border-2 border-gray-100 focus:border-orange-400 rounded-lg px-3 py-2 text-sm outline-none font-bold" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <select value={newItemCategory} onChange={e => setNewItemCategory(e.target.value)} className="w-full bg-white border-2 border-gray-100 focus:border-orange-400 rounded-lg px-3 py-2 text-sm outline-none">
+                  <option value="مواد خام">مواد خام</option>
+                  <option value="تغليف وتعبئة">تغليف وتعبئة</option>
+                  <option value="مشروبات">مشروبات</option>
+                  <option value="أخرى">أخرى</option>
+                </select>
+                <select value={newItemUnit} onChange={e => setNewItemUnit(e.target.value)} className="w-full bg-white border-2 border-gray-100 focus:border-orange-400 rounded-lg px-3 py-2 text-sm outline-none">
+                  <option value="كجم">كجم</option>
+                  <option value="جرام">جرام</option>
+                  <option value="لتر">لتر</option>
+                  <option value="قطعة">قطعة</option>
+                  <option value="صندوق">صندوق</option>
+                </select>
+              </div>
+            </div>
+          )}
+          <div>
+            <label className="text-xs font-bold text-gray-500 block mb-1">الفرع</label>
+            <select value={branch} onChange={e => setBranch(e.target.value)}
+              className="w-full bg-gray-50 border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold">
+              {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 block mb-1">الكمية *</label>
+            <input type="number" min="1" required value={qty} onChange={e => setQty(e.target.value)} placeholder="0"
+              className="w-full bg-gray-50 border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-mono text-lg text-center" />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-amber-600 block mb-1">سعر الوحدة (د.ل) *</label>
+            <input type="number" step="0.01" min="0.01" required value={unitPrice} onChange={e => setUnitPrice(e.target.value)} placeholder="0.00"
+              className="w-full bg-amber-50 border-2 border-amber-100 focus:border-amber-500 rounded-xl px-4 py-3 outline-none font-mono text-lg text-center text-amber-900" />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-green-700 block mb-1">الإجمالي</label>
+            <div className="w-full bg-green-50 border-2 border-green-100 rounded-xl px-4 py-3 font-mono text-lg text-center text-green-800 font-extrabold">
+              {total.toFixed(2)} د.ل
+            </div>
+          </div>
+          <div className="md:col-span-2 lg:col-span-3">
+            <label className="text-xs font-bold text-gray-500 block mb-1">ملاحظات</label>
+            <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="ملاحظات للمدير..."
+              className="w-full bg-gray-50 border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold" />
+          </div>
+          <div className="md:col-span-2 lg:col-span-3">
+            <button type="submit"
+              className="w-full bg-gray-900 hover:bg-black text-white font-bold py-4 rounded-xl transition flex items-center justify-center gap-2 shadow-lg">
+              <Send className="w-5 h-5" /> إرسال طلب الشراء للاعتماد
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* سجل الطلبات */}
+      <div className="bg-white border border-gray-100 rounded-3xl overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+          <h3 className="font-extrabold text-gray-900">سجل طلبات الشراء ({purchaseRequests.length})</h3>
+          <span className="text-xs font-bold text-amber-600 bg-amber-50 border border-amber-100 px-3 py-1 rounded-full">
+            {purchaseRequests.filter(r => r.status === "معلق").length} بانتظار الاعتماد
+          </span>
+        </div>
+        <table className="w-full text-right">
+          <thead>
+            <tr className="bg-gray-50 text-xs font-bold text-gray-500 border-b border-gray-100">
+              <th className="px-5 py-3">رقم الطلب</th>
+              <th className="px-5 py-3">المورد</th>
+              <th className="px-5 py-3">الصنف</th>
+              <th className="px-5 py-3 text-center">الكمية</th>
+              <th className="px-5 py-3 text-center">الإجمالي</th>
+              <th className="px-5 py-3 text-center">الحالة</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {purchaseRequests.map(r => (
+              <tr key={r.id} className="hover:bg-gray-50 transition">
+                <td className="px-5 py-4 font-mono text-xs text-gray-400">{r.requestNumber}</td>
+                <td className="px-5 py-4 font-bold text-sm text-gray-900">{r.supplierName}</td>
+                <td className="px-5 py-4 text-sm text-gray-600">{r.itemName}</td>
+                <td className="px-5 py-4 text-center font-mono text-sm">{r.qty} {r.unit}</td>
+                <td className="px-5 py-4 text-center font-mono font-bold text-orange-600">{r.totalAmount.toFixed(2)} د.ل</td>
+                <td className="px-5 py-4 text-center">
+                  <span className={`text-xs font-bold px-2 py-1 rounded-full border ${statusColor[r.status] || ""}`}>{r.status}</span>
+                </td>
+              </tr>
+            ))}
+            {purchaseRequests.length === 0 && (
+              <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400 text-sm font-bold">لا توجد طلبات شراء بعد</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -492,9 +825,9 @@ function OutboundFulfillmentView({ stock, requests, logs, onDispatch }: { stock:
                   <h4 className="font-extrabold text-gray-900 text-sm flex items-center gap-1.5">
                     <Building className="w-4 h-4 text-gray-400" /> {req.branch}
                   </h4>
-                  <p className="text-xs font-bold text-gray-500 mt-1">يطلب: <strong className="text-blue-600">{item?.name}</strong> بكمية ({req.qtyRequested} {item?.unit})</p>
+                  <p className="text-xs font-bold text-gray-500 mt-1">يطلب: <strong className="text-orange-600">{item?.name}</strong> بكمية ({req.qtyRequested} {item?.unit})</p>
                 </div>
-                <span className="text-[10px] font-mono text-gray-400 bg-gray-50 px-2 rounded border border-gray-100">{req.id}</span>
+                <span className="text-[10px] font-mono text-gray-400 bg-[#f8f9fd] px-2 rounded border border-gray-100">{req.id}</span>
               </div>
 
               {!hasEnough && (
@@ -503,7 +836,7 @@ function OutboundFulfillmentView({ stock, requests, logs, onDispatch }: { stock:
                 </div>
               )}
 
-              <button disabled={!hasEnough} onClick={() => onDispatch(req.itemId, req.qtyRequested, req.branch, req.id)} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2 text-sm">
+              <button disabled={!hasEnough} onClick={() => onDispatch(req.itemId, req.qtyRequested, req.branch, req.id)} className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2 text-sm">
                 <Truck className="w-4 h-4" /> أمر بتلبيــة وإرسال الشحنة
               </button>
             </div>
@@ -511,7 +844,7 @@ function OutboundFulfillmentView({ stock, requests, logs, onDispatch }: { stock:
         })}
 
         {pendingRequests.length === 0 && (
-          <div className="bg-gray-50 border border-gray-100 rounded-3xl p-6 text-center">
+          <div className="bg-[#f8f9fd] border border-gray-100 rounded-3xl p-6 text-center">
             <CheckCircle2 className="w-10 h-10 text-gray-300 mx-auto mb-2" />
             <p className="text-gray-500 font-bold text-sm">لا توجد طلبات معلّقة من الفروع اليوم.</p>
           </div>
@@ -525,7 +858,7 @@ function OutboundFulfillmentView({ stock, requests, logs, onDispatch }: { stock:
           <form onSubmit={handleManualDispatch} className="space-y-4">
             <div>
               <label className="text-xs font-bold text-gray-500 block mb-2">إلى أي فرع؟</label>
-              <select value={selBranch} onChange={e => setSelBranch(e.target.value)} required className="w-full bg-gray-50 border-2 border-gray-100 focus:border-blue-500 rounded-xl px-4 py-3 outline-none font-bold">
+              <select value={selBranch} onChange={e => setSelBranch(e.target.value)} required className="w-full bg-[#f8f9fd] border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold">
                 <option value="">اختار الفرع المستلم...</option>
                 {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
               </select>
@@ -533,14 +866,14 @@ function OutboundFulfillmentView({ stock, requests, logs, onDispatch }: { stock:
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-bold text-gray-500 block mb-2">الصنف المُراد إرساله</label>
-                <select value={selItem} onChange={e => setSelItem(e.target.value)} required className="w-full bg-gray-50 border-2 border-gray-100 focus:border-blue-500 rounded-xl px-4 py-3 outline-none font-bold text-xs">
+                <select value={selItem} onChange={e => setSelItem(e.target.value)} required className="w-full bg-[#f8f9fd] border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold text-xs">
                   <option value="">-- المادة --</option>
                   {stock.filter(s => s.qty > 0).map(i => <option key={i.id} value={i.id}>{i.name} (متوفر: {i.qty})</option>)}
                 </select>
               </div>
               <div>
                 <label className="text-xs font-bold text-gray-500 block mb-2">الكمية المسحوبة</label>
-                <input type="number" min="1" value={qty} onChange={e => setQty(e.target.value)} required placeholder="أدخل الكمية..." className="w-full bg-gray-50 border-2 border-gray-100 focus:border-blue-500 rounded-xl px-4 py-3 outline-none font-mono text-base" />
+                <input type="number" min="1" value={qty} onChange={e => setQty(e.target.value)} required placeholder="أدخل الكمية..." className="w-full bg-[#f8f9fd] border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-mono text-base" />
               </div>
             </div>
             <button type="submit" className="w-full bg-gray-900 hover:bg-black text-white font-bold py-3.5 rounded-xl transition flex justify-center items-center gap-2">
@@ -556,12 +889,12 @@ function OutboundFulfillmentView({ stock, requests, logs, onDispatch }: { stock:
                {logs.map(log => (
                  <div key={log.id} className="bg-white border text-right border-gray-100 p-4 rounded-xl flex flex-col justify-between shadow-sm">
                    <div className="flex items-center justify-between mb-2">
-                     <span className="text-[10px] font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded-md">{log.time}</span>
-                     <span className="text-xs font-bold text-gray-500 flex items-center gap-1"><Truck className="w-3 h-3 text-blue-500" /> {log.target}</span>
+                     <span className="text-[10px] font-bold text-gray-400 bg-[#f8f9fd] px-2 py-1 rounded-md">{log.time}</span>
+                     <span className="text-xs font-bold text-gray-500 flex items-center gap-1"><Truck className="w-3 h-3 text-orange-500" /> {log.target}</span>
                    </div>
                    <p className="text-sm font-bold text-gray-900 border-t border-gray-50 pt-2 flex justify-between items-center">
-                     <span>صرف <strong className="text-blue-600 font-mono ml-1">{log.qtyStr}</strong> من مادة ({log.itemName})</span>
-                     <span className="text-[10px] font-bold text-gray-400 bg-gray-50 px-1 border border-gray-100 rounded">تكلفة الوحدة المنقولة: {log.costUsed.toFixed(2)}</span>
+                     <span>صرف <strong className="text-orange-600 font-mono ml-1">{log.qtyStr}</strong> من مادة ({log.itemName})</span>
+                     <span className="text-[10px] font-bold text-gray-400 bg-[#f8f9fd] px-1 border border-gray-100 rounded">تكلفة الوحدة المنقولة: {log.costUsed.toFixed(2)}</span>
                    </p>
                  </div>
                ))}

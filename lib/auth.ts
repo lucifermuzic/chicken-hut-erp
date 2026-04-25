@@ -20,8 +20,8 @@ export const ROLES: RoleConfig[] = [
     sublabel: "CEO / Director",
     route: "/ceo",
     password: "ceo@2026",
-    color: "text-indigo-400",
-    bgColor: "bg-indigo-500/10 border-indigo-500/20",
+    color: "text-gray-900",
+    bgColor: "bg-white border-gray-200",
     icon: "🏛️",
   },
   {
@@ -30,8 +30,8 @@ export const ROLES: RoleConfig[] = [
     sublabel: "Branch Manager",
     route: "/branch-manager",
     password: "manager@2026",
-    color: "text-orange-400",
-    bgColor: "bg-orange-500/10 border-orange-500/20",
+    color: "text-gray-900",
+    bgColor: "bg-white border-gray-200",
     icon: "🏪",
   },
   {
@@ -40,8 +40,8 @@ export const ROLES: RoleConfig[] = [
     sublabel: "Storekeeper",
     route: "/storekeeper",
     password: "store@2026",
-    color: "text-blue-400",
-    bgColor: "bg-blue-500/10 border-blue-500/20",
+    color: "text-gray-900",
+    bgColor: "bg-white border-gray-200",
     icon: "📦",
   },
   {
@@ -50,8 +50,8 @@ export const ROLES: RoleConfig[] = [
     sublabel: "Accountant / CFO",
     route: "/treasury",
     password: "treasury@2026",
-    color: "text-emerald-400",
-    bgColor: "bg-emerald-500/10 border-emerald-500/20",
+    color: "text-gray-900",
+    bgColor: "bg-white border-gray-200",
     icon: "💰",
   },
   {
@@ -63,6 +63,16 @@ export const ROLES: RoleConfig[] = [
     color: "text-zinc-300",
     bgColor: "bg-zinc-500/10 border-zinc-500/20",
     icon: "🖥️",
+  },
+  {
+    id: "call-center",
+    label: "مركز الاتصالات",
+    sublabel: "Call Center Agent",
+    route: "/call-center",
+    password: "callcenter@2026",
+    color: "text-indigo-700",
+    bgColor: "bg-indigo-50 border-indigo-200",
+    icon: "📞",
   },
 ];
 
@@ -81,6 +91,9 @@ export interface UserSession {
   roleId: string;
   role: RoleConfig;
   loginTime: number;
+  employeeId?: string;
+  employeeName?: string;
+  branch?: string;
 }
 
 export function getSession(): UserSession | null {
@@ -100,8 +113,16 @@ export function getSession(): UserSession | null {
   }
 }
 
-export function saveSession(role: RoleConfig): void {
-  const session: UserSession = { roleId: role.id, role, loginTime: Date.now() };
+export function saveSession(
+  role: RoleConfig,
+  employeeData?: { employeeId?: string; employeeName?: string; branch?: string }
+): void {
+  const session: UserSession = {
+    roleId: role.id,
+    role,
+    loginTime: Date.now(),
+    ...(employeeData || {}),
+  };
   localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
 }
 
