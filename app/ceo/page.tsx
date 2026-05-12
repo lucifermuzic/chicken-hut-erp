@@ -1195,7 +1195,7 @@ function MenuItemsManagementView({ showSuccess }: { showSuccess: (m: string) => 
                 ))}
               </select>
 
-              <input type="number" step="0.01" value={selQty} onChange={e => setSelQty(e.target.value)} placeholder="الكمية" className="w-24 bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-gray-900 outline-none text-sm font-mono" />
+              <input type="number" step="any" value={selQty} onChange={e => setSelQty(e.target.value)} placeholder="الكمية" className="w-24 bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-gray-900 outline-none text-sm font-mono" />
 
               <select value={selUnit} onChange={e => setSelUnit(e.target.value)} className="w-24 bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-gray-900 outline-none text-sm">
                 {selInvId && (() => {
@@ -1307,282 +1307,260 @@ function MenuItemsManagementView({ showSuccess }: { showSuccess: (m: string) => 
 // 6. إدارة المخازن والمواد الخام (Inventory Management)
 // ─────────────────────────────────────────────────────────────
 function InventoryManagementView({ showSuccess }: { showSuccess: (m: string) => void }) {
-  const inventoryItems = useLiveQuery(() => db.inventory.toArray()) || [];
-
-  const [isAdding, setIsAdding] = useState(false);
-  const [name, setName] = useState("");
-  const [category, setCategory] = useState("خضروات");
-  const [newCategory, setNewCategory] = useState("");
-  const [unit, setUnit] = useState("كيلو");
-  const [newUnit, setNewUnit] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [minAlert, setMinAlert] = useState("");
-  const [avgPrice, setAvgPrice] = useState("");
-
-  const [supplyItem, setSupplyItem] = useState<any>(null);
-  const [supplyQty, setSupplyQty] = useState("");
-  const [supplyPrice, setSupplyPrice] = useState("");
-
-  const existingCategories = Array.from(new Set(inventoryItems.map(i => i.category)));
-  if (!existingCategories.includes("خضروات")) existingCategories.push("خضروات");
-
-  const existingUnits = Array.from(new Set(inventoryItems.map(i => i.unit)));
-  if (!existingUnits.includes("كيلو")) existingUnits.push("كيلو");
-  if (!existingUnits.includes("لتر")) existingUnits.push("لتر");
-
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name || !avgPrice || !quantity) return;
-
-    const finalCategory = newCategory.trim() !== "" ? newCategory.trim() : category;
-    const finalUnit = newUnit.trim() !== "" ? newUnit.trim() : unit;
-
-    await db.inventory.add({
-      name,
-      category: finalCategory,
-      unit: finalUnit,
-      qty: parseFloat(quantity) || 0,
-      min: parseFloat(minAlert) || 0,
-      avgPrice: parseFloat(avgPrice) || 0,
-      isSynced: false
-    });
-
-    showSuccess(`تمت إضافة ${name} للمخزن بنجاح!`);
-    setIsAdding(false);
-    setName(""); setQuantity(""); setMinAlert(""); setAvgPrice(""); setNewCategory(""); setNewUnit("");
-  };
-
-  const handleSupply = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!supplyItem || !supplyQty || !supplyPrice) return;
-
-    const addedQty = parseFloat(supplyQty);
-    const addedPrice = parseFloat(supplyPrice); // هذا السعر للوحدة الواحدة في التوريد الجديد
-
-    if (addedQty <= 0 || addedPrice < 0) return;
-
-    // حساب المتوسط المرجح للتكلفة
-    const currentQty = supplyItem.qty;
-    const currentAvgPrice = supplyItem.avgPrice;
-
-    const totalCurrentValue = currentQty * currentAvgPrice;
-    const totalAddedValue = addedQty * addedPrice;
-
-    const newQty = currentQty + addedQty;
-    const newAvgPrice = (totalCurrentValue + totalAddedValue) / newQty;
-
-    await db.inventory.update(supplyItem.id, {
-      qty: newQty,
-      avgPrice: newAvgPrice
-    });
-
-    showSuccess(`تم توريد ${addedQty} ${supplyItem.unit} من ${supplyItem.name} وتحديث متوسط التكلفة إلى ${newAvgPrice.toFixed(2)} د.ل.`);
-    setSupplyItem(null);
-    setSupplyQty("");
-    setSupplyPrice("");
-  };
-
-  const deleteItem = async (id: number) => {
-    if (confirm("هل أنت متأكد من حذف هذه المادة؟ قد يؤثر ذلك على تكلفة الوجبات المرتبطة بها.")) {
-      await db.inventory.delete(id);
-      showSuccess("تم حذف المادة بنجاح.");
-    }
-  };
+  const stock = useLiveQuery(() => db.inventory.toArray()) || [];
+  const totalValue = stock.reduce((acc, item) => acc + (item.qty * item.avgPrice), 0);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
-        <div>
-          <h3 className="text-xl font-extrabold text-gray-900 flex items-center gap-2"><Package className="w-6 h-6 text-orange-500" /> إدارة المخازن والمواد الخام</h3>
-          <p className="text-xs font-bold text-gray-500 mt-1">إضافة مواد خام جديدة، وتحديد أسعار التكلفة للربط التلقائي مع هندسة المنيو.</p>
+      {/* ملخص المالي */}
+      <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm flex items-center justify-between relative overflow-hidden">
+        <div className="relative z-10 flex items-center gap-4">
+          <div className="w-14 h-14 bg-amber-50 border border-amber-100 text-amber-500 rounded-2xl flex items-center justify-center">
+            <DollarSign className="w-8 h-8" />
+          </div>
+          <div>
+            <p className="text-gray-500 font-bold text-xs mb-1">إجمالي قيمة المواد المخزنة</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-extrabold text-gray-900 font-mono tracking-tight">{totalValue.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+              <span className="text-base font-bold text-amber-500">د.ل</span>
+            </div>
+          </div>
         </div>
-        {!isAdding && (
-          <button onClick={() => setIsAdding(true)} className="bg-orange-600 hover:bg-orange-500 text-gray-900 font-bold px-6 py-3 rounded-xl shadow-lg shadow-orange-500/20 transition flex items-center gap-2">
-            إضافة مادة خام جديدة
-          </button>
-        )}
+        <p className="text-[10px] text-gray-400 max-w-[200px] text-left relative z-10 font-medium">مُحتسبة بناءً على المعادلة المالية (المتوسط المرجّح للمخزون).</p>
       </div>
 
-      {isAdding && (
-        <form onSubmit={handleAdd} className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm space-y-6">
-          <h4 className="font-extrabold text-gray-900">إضافة مادة خام جديدة</h4>
+      <div className="bg-white border border-gray-100 rounded-3xl overflow-hidden shadow-sm">
+        <div className="px-6 py-5 border-b border-gray-50 flex items-center justify-between bg-[#f8f9fd]/50">
+          <h3 className="text-lg font-bold text-gray-900">الأصناف الحالية (Main Warehouse)</h3>
+        </div>
+        <table className="w-full text-right border-collapse">
+          <thead>
+            <tr className="bg-[#f8f9fd] border-b border-gray-100">
+              <th className="px-6 py-4 text-xs font-bold text-gray-400 w-16">#</th>
+              <th className="px-6 py-4 text-xs font-bold text-gray-500">الصنف</th>
+              <th className="px-6 py-4 text-xs font-bold text-gray-500">التصنيف</th>
+              <th className="px-6 py-4 text-xs font-bold text-orange-600 text-center">الرصيد المتاح</th>
+              <th className="px-6 py-4 text-xs font-bold text-green-600 text-center">تكلفة الوحدة (المتوسط)</th>
+              <th className="px-6 py-4 text-xs font-bold text-gray-500 text-center">إجمالي القيمة</th>
+              <th className="px-6 py-4 text-xs font-bold text-gray-500 text-center">الحالة</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {stock.map((item, idx) => {
+              const isLow = item.qty <= item.min;
+              const itemTotalValue = item.qty * item.avgPrice;
+              return (
+                <tr key={item.id} className="hover:bg-[#f8f9fd]/50 transition">
+                  <td className="px-6 py-4 text-xs font-bold text-gray-400">{item.id}</td>
+                  <td className="px-6 py-4 text-sm font-extrabold text-gray-900">{item.name}</td>
+                  <td className="px-6 py-4 text-xs font-bold text-gray-500"><span className="bg-gray-100 px-2 py-1 rounded-md">{item.category}</span></td>
+                  <td className="px-6 py-4 text-sm font-mono font-bold text-center text-orange-700 bg-orange-50/30">
+                    {Number.isInteger(item.qty) ? item.qty : item.qty.toFixed(3).replace(/\.?0+$/, '')} <span className="text-[10px] text-gray-400 font-sans">{item.unit}</span>
+                  </td>
+                  <td className="px-6 py-4 text-sm font-mono font-bold text-center text-green-600 bg-green-50/30">
+                    {item.avgPrice.toFixed(2)} <span className="text-[10px] text-green-500/60 font-sans">د.ل</span>
+                  </td>
+                  <td className="px-6 py-4 text-sm font-mono font-bold text-center text-gray-700">
+                    {itemTotalValue.toLocaleString(undefined, {minimumFractionDigits: 2})} <span className="text-[10px] text-gray-400 font-sans">د.ل</span>
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    {isLow ? (
+                      <span className="inline-flex items-center gap-1 bg-red-50 text-red-600 border border-red-100 px-2 py-1 rounded-lg text-[10px] font-bold">
+                        <AlertCircle className="w-3.5 h-3.5" /> نفاد مبكر
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 bg-[#f8f9fd] text-gray-500 border border-gray-100 px-2 py-1 rounded-lg text-[10px] font-bold">
+                        متوفر
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="text-xs font-bold text-gray-400 block mb-2">اسم المادة</label>
-              <input type="text" value={name} onChange={e => setName(e.target.value)} required placeholder="مثال: دجاج كامل مبرد" className="w-full bg-[#f8f9fd] border border-gray-200 focus:border-orange-500 rounded-xl px-4 py-3 text-gray-900 outline-none" />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-400 block mb-2">التصنيف</label>
-              <div className="flex gap-2">
-                <select value={category} onChange={e => { setCategory(e.target.value); setNewCategory(""); }} className="w-1/2 bg-[#f8f9fd] border border-gray-200 focus:border-orange-500 rounded-xl px-4 py-3 text-gray-900 outline-none">
-                  {existingCategories.map(c => <option key={c} value={c}>{c}</option>)}
-                  <option value="NEW">تصنيف جديد...</option>
-                </select>
-                {category === "NEW" && (
-                  <input type="text" value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="اسم التصنيف..." required className="w-1/2 bg-[#f8f9fd] border border-gray-200 focus:border-orange-500 rounded-xl px-4 py-3 text-gray-900 outline-none" />
-                )}
+// ─── اعتماد طلبات الشراء من أمين المخزن (CEO) ───────────────────
+function PurchaseRequestsApprovalView({ showSuccess }: { showSuccess: (msg: string) => void }) {
+  const purchaseRequests = useLiveQuery(() =>
+    db.purchaseRequests.orderBy("id").reverse().toArray()
+  ) ?? [];
+
+  const pending   = purchaseRequests.filter((r) => r.status === "معلق");
+  const processed = purchaseRequests.filter((r) => r.status !== "معلق");
+
+  const handleApproveDebt = async (req: any) => {
+    await db.purchaseRequests.update(req.id, {
+      status: "معتمد - دين",
+      approvedAt: new Date().toISOString(),
+      approvedBy: "CEO",
+    });
+    if (req.itemId) {
+      const invItem = await db.inventory.get(req.itemId);
+      if (invItem) {
+        const totalCurrentValue = invItem.qty * invItem.avgPrice;
+        const totalAddedValue = req.qty * req.unitPrice;
+        const newQty = invItem.qty + req.qty;
+        const newAvgPrice = newQty > 0 ? (totalCurrentValue + totalAddedValue) / newQty : 0;
+
+        await db.inventory.update(req.itemId, {
+          qty: newQty,
+          avgPrice: newAvgPrice,
+          isSynced: false
+        });
+      }
+    }
+
+    showSuccess("تم اعتماد كدين وإضافة الكمية للمخزن ✓ — " + req.requestNumber);
+  };
+
+  const handleApprovePay = async (req: any) => {
+    const now = new Date().toISOString();
+    const count = await db.paymentOrders.count();
+    const voucherNumber = "PV-" + String(count + 1).padStart(4, "0");
+    const paymentId = await db.paymentOrders.add({
+      voucherNumber,
+      purchaseRequestId: req.id,
+      requestNumber: req.requestNumber,
+      supplierName: req.supplierName,
+      itemName: req.itemName,
+      qty: req.qty,
+      unit: req.unit,
+      unitPrice: req.unitPrice,
+      totalAmount: req.totalAmount,
+      branch: req.branch,
+      status: "بانتظار الخزينة",
+      createdAt: now,
+      notes: req.notes,
+    });
+    await db.purchaseRequests.update(req.id, {
+      status: "معتمد - صرف",
+      approvedAt: now,
+      approvedBy: "CEO",
+      paymentOrderId: paymentId as number,
+    });
+    showSuccess("تم إنشاء أمر صرف " + voucherNumber + " وإرساله لأمين الخزينة ✓");
+  };
+
+  const handleReject = async (id: number) => {
+    await db.purchaseRequests.update(id, { status: "مرفوض" });
+    showSuccess("تم رفض طلب الشراء");
+  };
+
+  const statusStyle: Record<string, string> = {
+    "معلق":          "bg-amber-500/10 text-amber-400 border-amber-500/30",
+    "معتمد - دين":   "bg-blue-500/10 text-blue-400 border-blue-500/30",
+    "معتمد - صرف":   "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+    "مرفوض":         "bg-red-500/10 text-red-400 border-red-500/30",
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center bg-white p-6 rounded-3xl border border-gray-100 shadow-xl">
+        <div>
+          <h3 className="text-xl font-extrabold text-gray-900 flex items-center gap-2">
+            <ShoppingBag className="w-6 h-6 text-orange-400" /> طلبات شراء أمين المخزن
+          </h3>
+          <p className="text-sm text-gray-400 font-medium mt-1">
+            طلبات مرسلة من أمين المخزن — اختر: اعتماد كدين أو اعتماد وصرف (يُنشئ أمر صرف لأمين الخزينة)
+          </p>
+        </div>
+        <div className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 border ${
+          pending.length > 0
+            ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
+            : "bg-gray-50 border-gray-100 text-gray-400"
+        }`}>
+          <AlertCircle className="w-4 h-4" /> {pending.length > 0 ? `${pending.length} طلب معلق` : "لا طلبات معلقة"}
+        </div>
+      </div>
+
+      {pending.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+          {pending.map((req) => (
+            <div key={req.id} className="bg-white border border-gray-100 rounded-3xl p-5 shadow-xl relative overflow-hidden flex flex-col hover:border-orange-500/30 transition">
+              <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-amber-400 to-orange-500" />
+              <div className="flex justify-between items-start mt-2 mb-3">
+                <div>
+                  <p className="text-xs font-extrabold text-orange-400 font-mono">{req.requestNumber}</p>
+                  <p className="text-base font-extrabold text-gray-900 mt-0.5">{req.supplierName}</p>
+                </div>
+                <span className="text-[10px] font-bold bg-gray-50 text-gray-400 border border-gray-100 px-2 py-1 rounded-lg">{req.branch}</span>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-3 mb-4 text-xs space-y-1.5 flex-1">
+                <div className="flex justify-between"><span className="text-gray-400">الصنف</span><strong className="text-gray-900">{req.itemName}</strong></div>
+                <div className="flex justify-between"><span className="text-gray-400">الكمية</span><strong className="text-gray-900">{req.qty} {req.unit}</strong></div>
+                <div className="flex justify-between"><span className="text-gray-400">سعر الوحدة</span><strong className="text-gray-900">{req.unitPrice.toFixed(2)} د.ل</strong></div>
+                <div className="flex justify-between border-t border-gray-200 pt-2 mt-1">
+                  <span className="font-extrabold text-gray-900">الإجمالي</span>
+                  <strong className="text-orange-400 text-sm font-mono">{req.totalAmount.toFixed(2)} د.ل</strong>
+                </div>
+              </div>
+              {req.notes && (
+                <p className="text-[10px] bg-blue-500/5 border border-blue-500/20 rounded-lg px-2 py-1.5 mb-3 text-gray-400">
+                  ملاحظة: {req.notes}
+                </p>
+              )}
+              <div className="grid grid-cols-3 gap-2 mt-auto">
+                <button onClick={() => handleApproveDebt(req)}
+                  className="flex flex-col items-center justify-center gap-0.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] py-3 px-1 rounded-xl transition active:scale-95 shadow-lg shadow-blue-600/20">
+                  <CreditCard className="w-4 h-4 mb-0.5" />
+                  اعتماد دين
+                </button>
+                <button onClick={() => handleApprovePay(req)}
+                  className="flex flex-col items-center justify-center gap-0.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] py-3 px-1 rounded-xl transition active:scale-95 shadow-lg shadow-emerald-600/20">
+                  <Banknote className="w-4 h-4 mb-0.5" />
+                  اعتماد وصرف
+                </button>
+                <button onClick={() => handleReject(req.id!)}
+                  className="flex items-center justify-center bg-red-500/10 hover:bg-red-500/20 text-red-400 text-lg font-bold py-3 rounded-xl border border-red-500/20 transition active:scale-95">
+                  ✕
+                </button>
               </div>
             </div>
-            <div>
-              <label className="text-xs font-bold text-gray-400 block mb-2">وحدة القياس الكبرى (مثال: كيلو، لتر، صندوق)</label>
-              <div className="flex gap-2">
-                <select value={unit} onChange={e => { setUnit(e.target.value); setNewUnit(""); }} className="w-1/2 bg-[#f8f9fd] border border-gray-200 focus:border-orange-500 rounded-xl px-4 py-3 text-gray-900 outline-none">
-                  {existingUnits.map(u => <option key={u} value={u}>{u}</option>)}
-                  <option value="NEW">وحدة جديدة...</option>
-                </select>
-                {unit === "NEW" && (
-                  <input type="text" value={newUnit} onChange={e => setNewUnit(e.target.value)} placeholder="اسم الوحدة..." required className="w-1/2 bg-[#f8f9fd] border border-gray-200 focus:border-orange-500 rounded-xl px-4 py-3 text-gray-900 outline-none" />
-                )}
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-400 block mb-2">الكمية الافتتاحية</label>
-              <input type="number" step="0.1" value={quantity} onChange={e => setQuantity(e.target.value)} required placeholder="0" className="w-full bg-[#f8f9fd] border border-gray-200 focus:border-orange-500 rounded-xl px-4 py-3 text-gray-900 outline-none font-mono" />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-400 block mb-2">حد التنبيه (النواقص)</label>
-              <input type="number" step="0.1" value={minAlert} onChange={e => setMinAlert(e.target.value)} required placeholder="0" className="w-full bg-[#f8f9fd] border border-gray-200 focus:border-orange-500 rounded-xl px-4 py-3 text-gray-900 outline-none font-mono" />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-400 block mb-2">متوسط التكلفة للوحدة (د.ل)</label>
-              <input type="number" step="0.01" value={avgPrice} onChange={e => setAvgPrice(e.target.value)} required placeholder="0.00" className="w-full bg-[#f8f9fd] border border-gray-200 focus:border-orange-500 rounded-xl px-4 py-3 text-gray-900 outline-none font-mono text-emerald-400 font-bold" />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 border-t border-gray-100 pt-6 mt-6">
-            <button type="submit" className="bg-emerald-600 hover:bg-[#ff6b00] text-white font-bold px-8 py-3 rounded-xl transition">حفظ في المخزن</button>
-            <button type="button" onClick={() => setIsAdding(false)} className="bg-gray-800 hover:bg-gray-700 text-gray-900 font-bold px-6 py-3 rounded-xl transition">إلغاء</button>
-          </div>
-        </form>
+          ))}
+        </div>
       )}
 
-      <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-right text-sm">
-            <thead className="bg-[#f8f9fd]/80 border-b border-gray-100">
-              <tr>
-                <th className="py-4 px-6 font-extrabold text-gray-600">اسم المادة</th>
-                <th className="py-4 px-6 font-extrabold text-gray-600">التصنيف</th>
-                <th className="py-4 px-6 font-extrabold text-gray-600">الكمية المتاحة</th>
-                <th className="py-4 px-6 font-extrabold text-gray-600">متوسط التكلفة</th>
-                <th className="py-4 px-6 font-extrabold text-gray-600">إجمالي القيمة</th>
-                <th className="py-4 px-6 font-extrabold text-gray-600 text-left">إجراءات</th>
+      {processed.length > 0 && (
+        <div className="bg-white border border-gray-100 rounded-3xl overflow-hidden shadow-xl">
+          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+            <h3 className="text-sm font-extrabold text-gray-900">سجل طلبات الشراء المعالجة</h3>
+            <span className="text-xs font-bold text-gray-400">{processed.length} طلب</span>
+          </div>
+          <table className="w-full text-right">
+            <thead>
+              <tr className="bg-gray-50 text-xs font-bold text-gray-400 border-b border-gray-100">
+                <th className="px-5 py-3">رقم الطلب</th>
+                <th className="px-5 py-3">المورد</th>
+                <th className="px-5 py-3">الصنف</th>
+                <th className="px-5 py-3 text-center">الفرع</th>
+                <th className="px-5 py-3 text-center">الإجمالي</th>
+                <th className="px-5 py-3 text-center">الحالة</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-800/50">
-              {inventoryItems.map(item => {
-                const totalValue = item.qty * item.avgPrice;
-                const isLow = item.qty <= item.min;
-                return (
-                  <tr key={item.id} className="hover:bg-[#f8f9fd]/50 transition group">
-                    <td className="py-4 px-6 text-gray-900 font-bold">{item.name}</td>
-                    <td className="py-4 px-6 text-orange-300 text-xs">{item.category}</td>
-                    <td className="py-4 px-6">
-                      <span className={`font-mono font-bold px-3 py-1 rounded-lg ${isLow ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
-                        {item.qty} {item.unit}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6 font-mono text-gray-600">{item.avgPrice.toFixed(2)} د.ل/{item.unit}</td>
-                    <td className="py-4 px-6 font-mono text-emerald-400 font-bold">{totalValue.toFixed(2)} د.ل</td>
-                    <td className="py-4 px-6 text-left flex gap-2 justify-end">
-                      <button onClick={() => { setSupplyItem(item); setSupplyQty(""); setSupplyPrice(""); }} className="text-xs font-bold text-orange-400 hover:text-gray-900 hover:bg-orange-500 px-3 py-1.5 rounded-lg border border-orange-500/20 transition opacity-0 group-hover:opacity-100">
-                        توريد كمية
-                      </button>
-                      <button onClick={() => deleteItem(item.id!)} className="text-xs font-bold text-red-500 hover:text-gray-900 hover:bg-red-500 px-3 py-1.5 rounded-lg border border-red-500/20 transition opacity-0 group-hover:opacity-100">
-                        حذف
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-              {inventoryItems.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="py-8 text-center text-gray-500 font-bold">المخزن فارغ حالياً</td>
+            <tbody className="divide-y divide-gray-50">
+              {processed.map((req) => (
+                <tr key={req.id} className="hover:bg-gray-50 transition">
+                  <td className="px-5 py-4 font-mono text-xs text-orange-400">{req.requestNumber}</td>
+                  <td className="px-5 py-4 font-bold text-sm text-gray-900">{req.supplierName}</td>
+                  <td className="px-5 py-4 text-sm text-gray-500">{req.itemName}</td>
+                  <td className="px-5 py-4 text-center text-xs text-gray-400">{req.branch}</td>
+                  <td className="px-5 py-4 text-center font-mono font-bold text-orange-400">
+                    {req.totalAmount.toFixed(2)} د.ل
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${statusStyle[req.status] || ""}`}>
+                      {req.status}
+                    </span>
+                  </td>
                 </tr>
-              )}
+              ))}
             </tbody>
           </table>
-        </div>
-      </div>
-
-      {/* ─── Modal: توريد كمية جديدة ─── */}
-      {supplyItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setSupplyItem(null)}>
-          <motion.div
-            initial={{ opacity: 0, scale: 0.92, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            onClick={e => e.stopPropagation()}
-            className="bg-white border border-orange-500/30 rounded-3xl p-8 shadow-2xl shadow-orange-500/10 w-full max-w-md mx-4"
-          >
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h3 className="text-lg font-extrabold text-gray-900 flex items-center gap-2">
-                  <Package className="w-5 h-5 text-orange-400" />
-                  توريد كمية جديدة
-                </h3>
-                <p className="text-xs font-bold text-orange-400 mt-1">{supplyItem.name}</p>
-              </div>
-              <button onClick={() => setSupplyItem(null)} className="w-9 h-9 rounded-full bg-gray-800 hover:bg-red-500/20 text-gray-400 hover:text-red-400 flex items-center justify-center transition">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="bg-[#f8f9fd] rounded-2xl p-4 mb-6 flex gap-6 text-sm font-bold">
-              <div>
-                <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-1">الرصيد الحالي</p>
-                <p className="font-mono text-gray-900">{supplyItem.qty} <span className="text-gray-500">{supplyItem.unit}</span></p>
-              </div>
-              <div>
-                <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-1">متوسط التكلفة الحالي</p>
-                <p className="font-mono text-orange-400">{supplyItem.avgPrice.toFixed(2)} د.ل/{supplyItem.unit}</p>
-              </div>
-            </div>
-
-            <form onSubmit={handleSupply} className="space-y-5">
-              <div>
-                <label className="text-xs font-bold text-gray-400 block mb-2">الكمية الواردة ({supplyItem.unit})</label>
-                <input
-                  type="number" step="0.01" min="0.01"
-                  value={supplyQty}
-                  onChange={e => setSupplyQty(e.target.value)}
-                  required
-                  placeholder="0"
-                  className="w-full bg-[#f8f9fd] border border-gray-200 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-mono text-lg text-gray-900"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-gray-400 block mb-2">سعر الشراء للوحدة الواحدة (د.ل / {supplyItem.unit})</label>
-                <input
-                  type="number" step="0.01" min="0"
-                  value={supplyPrice}
-                  onChange={e => setSupplyPrice(e.target.value)}
-                  required
-                  placeholder="0.00"
-                  className="w-full bg-[#f8f9fd] border border-gray-200 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-mono text-lg text-emerald-400 font-bold"
-                />
-              </div>
-
-              {supplyQty && supplyPrice && (
-                <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 text-xs font-bold">
-                  <p className="text-gray-400 mb-1">المتوسط المرجح الجديد المُتوقع:</p>
-                  <p className="font-mono text-orange-300 text-base">
-                    {(((supplyItem.qty * supplyItem.avgPrice) + (parseFloat(supplyQty) * parseFloat(supplyPrice))) / (supplyItem.qty + parseFloat(supplyQty))).toFixed(2)} د.ل/{supplyItem.unit}
-                  </p>
-                </div>
-              )}
-
-              <div className="flex gap-3 pt-2">
-                <button type="submit" className="flex-1 bg-orange-600 hover:bg-orange-500 text-gray-900 font-bold py-3.5 rounded-xl transition shadow-lg shadow-orange-600/20">
-                  تأكيد الاستلام والتوريد
-                </button>
-                <button type="button" onClick={() => setSupplyItem(null)} className="px-6 py-3.5 bg-gray-800 hover:bg-gray-700 text-gray-900 font-bold rounded-xl transition">
-                  إلغاء
-                </button>
-              </div>
-            </form>
-          </motion.div>
         </div>
       )}
     </div>

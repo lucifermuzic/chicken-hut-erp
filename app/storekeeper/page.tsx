@@ -88,14 +88,17 @@ export default function StorekeeperPage() {
       return;
     }
 
-    // خصم من المخزن وإضافة للفرع
-    const newBranchQtys = { ...(item.branchQtys || {}) };
-    newBranchQtys[targetBranch] = (newBranchQtys[targetBranch] || 0) + qty;
+    // خصم من المخزن الرئيسي
+    await db.inventory.update(itemId, { qty: item.qty - qty });
 
-    await db.inventory.update(itemId, { 
-      qty: item.qty - qty,
-      branchQtys: newBranchQtys
-    });
+    // إضافة لمخزون الفرع في الجدول الجديد
+    const branchInvId = `${itemId}_${targetBranch}`;
+    const branchItem = await db.branchInventory.get(branchInvId);
+    if (branchItem) {
+      await db.branchInventory.update(branchInvId, { qty: branchItem.qty + qty, isSynced: false });
+    } else {
+      await db.branchInventory.add({ id: branchInvId, itemId, branchId: targetBranch, qty, isSynced: false });
+    }
 
     // تسجيل خروج الوثيقة
     setOutboundLogs(prev => [{
@@ -271,7 +274,7 @@ function MainStockView({ stock }: { stock: StockItem[] }) {
                   <td className="px-6 py-4 text-sm font-extrabold text-gray-900">{item.name}</td>
                   <td className="px-6 py-4 text-xs font-bold text-gray-500"><span className="bg-gray-100 px-2 py-1 rounded-md">{item.category}</span></td>
                   <td className="px-6 py-4 text-sm font-mono font-bold text-center text-orange-700 bg-orange-50/30">
-                    {item.qty} <span className="text-[10px] text-gray-400 font-sans">{item.unit}</span>
+                    {Number.isInteger(item.qty) ? item.qty : item.qty.toFixed(3).replace(/\.?0+$/, '')} <span className="text-[10px] text-gray-400 font-sans">{item.unit}</span>
                   </td>
                   <td className="px-6 py-4 text-sm font-mono font-bold text-center text-green-600 bg-green-50/30">
                     {item.avgPrice.toFixed(2)} <span className="text-[10px] text-green-500/60 font-sans">د.ل</span>
@@ -325,7 +328,7 @@ function IncomingInvoicesView({ stock, onAddInvoice, invoices, suppliers }: { st
         unit: newItemUnit,
         min: 10,
         avgPrice: 0,
-        branchQtys: {},
+
         isSynced: false
       });
       finalItemId = newId as number;
@@ -393,7 +396,7 @@ function IncomingInvoicesView({ stock, onAddInvoice, invoices, suppliers }: { st
             </div>
             <div>
               <label className="text-xs font-bold text-amber-500 block mb-2">سعر الإفراد (حسب الفاتورة)</label>
-              <input type="number" step="0.01" min="0.01" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} required placeholder="0.00 د.ل" className="w-full bg-amber-50 border-2 border-amber-100 focus:border-amber-500 rounded-xl px-4 py-3 outline-none font-mono text-center text-lg text-amber-900" />
+              <input type="number" step="any" min="0.01" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} required placeholder="0.00 د.ل" className="w-full bg-amber-50 border-2 border-amber-100 focus:border-amber-500 rounded-xl px-4 py-3 outline-none font-mono text-center text-lg text-amber-900" />
             </div>
           </div>
           <button type="submit" className="w-full mt-4 flex items-center justify-center gap-2 bg-gray-900 hover:bg-black text-white px-8 py-4 rounded-xl font-bold transition">
@@ -427,7 +430,7 @@ function IncomingInvoicesView({ stock, onAddInvoice, invoices, suppliers }: { st
                       <p className="font-extrabold text-gray-900 text-sm">{inv.supplier}</p>
                       <span className="text-[10px] font-mono text-gray-400 bg-[#f8f9fd] px-2 rounded">{inv.id}</span>
                     </div>
-                    <p className="text-xs font-bold text-gray-500 mb-2">{item?.name} — شراء {inv.qty} {item?.unit} بسعر {inv.unitPrice} د.ل للإفراد.</p>
+                    <p className="text-xs font-bold text-gray-500 mb-2">{item?.name} — شراء {Number.isInteger(inv.qty) ? inv.qty : inv.qty.toFixed(3).replace(/\.?0+$/, '')} {item?.unit} بسعر {inv.unitPrice} د.ل للإفراد.</p>
                     <div className="flex justify-between items-center bg-[#f8f9fd] p-2 rounded-lg text-xs font-bold mt-2">
                       <span className="text-gray-400">إجمالي المطلوب سداده</span>
                       <span className="text-orange-600 font-mono text-sm">{(inv.qty * inv.unitPrice).toFixed(2)} د.ل</span>
@@ -480,7 +483,7 @@ function ApprovalsView({ stock, invoices, onApprove }: { stock: StockItem[], inv
                     <p className="text-[10px] text-gray-500 font-bold mt-1">المادة المستلمة: ({item?.name})</p>
                   </td>
                   <td className="px-6 py-4 text-sm font-mono font-bold text-center text-gray-700 bg-[#f8f9fd]/30">
-                    {inv.qty} <span className="text-[10px] text-gray-400 font-sans">{item?.unit}</span>
+                    {Number.isInteger(inv.qty) ? inv.qty : inv.qty.toFixed(3).replace(/\.?0+$/, '')} <span className="text-[10px] text-gray-400 font-sans">{item?.unit}</span>
                   </td>
                   <td className="px-6 py-4 text-sm font-mono font-bold text-center text-orange-600 bg-orange-50/30">
                     {inv.unitPrice.toFixed(2)} <span className="text-[10px] text-orange-500/60 font-sans">د.ل</span>
@@ -623,7 +626,7 @@ function PurchaseRequestsView({ stock, suppliers, purchaseRequests, onAdd }: { s
         unit: newItemUnit,
         min: 10,
         avgPrice: 0,
-        branchQtys: {},
+
         isSynced: false
       });
       finalItemId = newId as number;
@@ -727,7 +730,7 @@ function PurchaseRequestsView({ stock, suppliers, purchaseRequests, onAdd }: { s
           </div>
           <div>
             <label className="text-xs font-bold text-amber-600 block mb-1">سعر الوحدة (د.ل) *</label>
-            <input type="number" step="0.01" min="0.01" required value={unitPrice} onChange={e => setUnitPrice(e.target.value)} placeholder="0.00"
+            <input type="number" step="any" min="0.01" required value={unitPrice} onChange={e => setUnitPrice(e.target.value)} placeholder="0.00"
               className="w-full bg-amber-50 border-2 border-amber-100 focus:border-amber-500 rounded-xl px-4 py-3 outline-none font-mono text-lg text-center text-amber-900" />
           </div>
           <div>
@@ -775,7 +778,7 @@ function PurchaseRequestsView({ stock, suppliers, purchaseRequests, onAdd }: { s
                 <td className="px-5 py-4 font-mono text-xs text-gray-400">{r.requestNumber}</td>
                 <td className="px-5 py-4 font-bold text-sm text-gray-900">{r.supplierName}</td>
                 <td className="px-5 py-4 text-sm text-gray-600">{r.itemName}</td>
-                <td className="px-5 py-4 text-center font-mono text-sm">{r.qty} {r.unit}</td>
+                <td className="px-5 py-4 text-center font-mono text-sm">{Number.isInteger(r.qty) ? r.qty : r.qty.toFixed(3).replace(/\.?0+$/, '')} {r.unit}</td>
                 <td className="px-5 py-4 text-center font-mono font-bold text-orange-600">{r.totalAmount.toFixed(2)} د.ل</td>
                 <td className="px-5 py-4 text-center">
                   <span className={`text-xs font-bold px-2 py-1 rounded-full border ${statusColor[r.status] || ""}`}>{r.status}</span>
@@ -832,7 +835,7 @@ function OutboundFulfillmentView({ stock, requests, logs, onDispatch }: { stock:
 
               {!hasEnough && (
                 <div className="bg-red-50 text-red-600 text-[10px] p-2 rounded-lg font-bold mb-4 border border-red-100 flex items-center gap-1">
-                  <AlertCircle className="w-3.5 h-3.5" /> تحذير: الكمية الموجودة بالمخزن الرئيسي ({item?.qty}) لا تكفي لتنفيذ الطلب!
+                  <AlertCircle className="w-3.5 h-3.5" /> تحذير: الكمية الموجودة بالمخزن الرئيسي ({typeof item?.qty === 'number' && !Number.isInteger(item.qty) ? item.qty.toFixed(3).replace(/\.?0+$/, '') : item?.qty}) لا تكفي لتنفيذ الطلب!
                 </div>
               )}
 
@@ -868,7 +871,7 @@ function OutboundFulfillmentView({ stock, requests, logs, onDispatch }: { stock:
                 <label className="text-xs font-bold text-gray-500 block mb-2">الصنف المُراد إرساله</label>
                 <select value={selItem} onChange={e => setSelItem(e.target.value)} required className="w-full bg-[#f8f9fd] border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold text-xs">
                   <option value="">-- المادة --</option>
-                  {stock.filter(s => s.qty > 0).map(i => <option key={i.id} value={i.id}>{i.name} (متوفر: {i.qty})</option>)}
+                  {stock.filter(s => s.qty > 0).map(i => <option key={i.id} value={i.id}>{i.name} (متوفر: {Number.isInteger(i.qty) ? i.qty : i.qty.toFixed(3).replace(/\.?0+$/, '')} {i.unit})</option>)}
                 </select>
               </div>
               <div>

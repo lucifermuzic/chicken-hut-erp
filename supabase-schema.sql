@@ -25,8 +25,15 @@ CREATE TABLE public.inventory (
   qty REAL NOT NULL,
   min REAL NOT NULL,
   "avgPrice" REAL NOT NULL,
-  "isSynced" BOOLEAN DEFAULT TRUE,
-  "branchQtys" JSONB
+  "isSynced" BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE public."branchInventory" (
+  id TEXT PRIMARY KEY,
+  "itemId" BIGINT NOT NULL,
+  "branchId" TEXT NOT NULL,
+  qty REAL NOT NULL,
+  "isSynced" BOOLEAN DEFAULT TRUE
 );
 
 CREATE TABLE public."treasuryLogs" (

@@ -367,16 +367,22 @@ export default function POSDashboard() {
       for (const cartItem of cartItems) {
         if (cartItem.ingredients && Array.isArray(cartItem.ingredients)) {
           for (const ingredient of cartItem.ingredients) {
-            const deductQty = ingredient.qty * cartItem.quantity;
+            let deductQty = ingredient.qty * cartItem.quantity;
+            
+            // Unit conversion: grams to kilos, ml to liters
             const invItem = await db.inventory.get(ingredient.itemId);
             if (invItem) {
-              const currentBranchQtys = invItem.branchQtys || {};
-              const currentQty = currentBranchQtys[sessionBranch] || 0;
-              
-              if (currentQty > 0) {
-                const newBranchQtys = { ...currentBranchQtys, [sessionBranch]: Math.max(0, currentQty - deductQty) };
-                await db.inventory.update(ingredient.itemId, { branchQtys: newBranchQtys });
-              }
+               if (invItem.unit === "كيلو" && ingredient.unit === "جرام") deductQty /= 1000;
+               else if (invItem.unit === "لتر" && ingredient.unit === "مل") deductQty /= 1000;
+            }
+
+            const branchInvId = `${ingredient.itemId}_${sessionBranch}`;
+            const branchItem = await db.branchInventory.get(branchInvId);
+            if (branchItem && branchItem.qty > 0) {
+              await db.branchInventory.update(branchInvId, { 
+                qty: Math.max(0, branchItem.qty - deductQty),
+                isSynced: false 
+              });
             }
           }
         }
@@ -530,7 +536,7 @@ export default function POSDashboard() {
                   <div>
                     <label className="text-sm font-bold text-gray-800 block mb-2">المبلغ الافتتاحي في الدرج (د.ل)</label>
                     <div className="relative">
-                      <input type="number" min="0" step="0.5" value={openingAmount}
+                      <input type="number" min="0" step="any" value={openingAmount}
                         onChange={e => setOpeningAmount(e.target.value)}
                         placeholder="0.00" dir="ltr" required autoFocus
                         className="w-full bg-gray-50 border-2 border-gray-100 focus:border-[#ff6b00] rounded-2xl px-5 py-4 text-3xl font-bold text-gray-900 text-center outline-none transition-colors tracking-wider" />
@@ -1032,7 +1038,7 @@ export default function POSDashboard() {
                       <div className="space-y-3 bg-gray-50 p-4 rounded-xl border border-gray-100">
                         <div>
                           <label className="text-xs font-bold text-gray-500 block mb-1">المبلغ المستلم من الزبون (د.ل) *</label>
-                          <input type="number" step="0.5" required min={totalAmount} value={cashPaidAmount} onChange={e => { setCashPaidAmount(e.target.value); setPaymentError(""); }} placeholder="0.00" className="w-full bg-white border border-gray-200 focus:border-[#ff6b00] rounded-xl px-3 py-3 outline-none font-mono text-xl text-center" />
+                          <input type="number" step="any" required min={totalAmount} value={cashPaidAmount} onChange={e => { setCashPaidAmount(e.target.value); setPaymentError(""); }} placeholder="0.00" className="w-full bg-white border border-gray-200 focus:border-[#ff6b00] rounded-xl px-3 py-3 outline-none font-mono text-xl text-center" />
                         </div>
                         {Number(cashPaidAmount) > totalAmount && (
                           <div className="bg-orange-50 text-orange-700 p-3 rounded-lg border border-orange-100 text-sm font-bold flex justify-between items-center">
@@ -1072,11 +1078,11 @@ export default function POSDashboard() {
                         <div className="grid grid-cols-2 gap-3">
                           <div>
                             <label className="text-xs font-bold text-gray-500 block mb-1">دفع نقداً</label>
-                            <input type="number" step="0.5" value={splitCashAmount} onChange={e => { setSplitCashAmount(e.target.value); setPaymentError(""); }} placeholder="0.00" className="w-full bg-white border border-gray-200 focus:border-[#ff6b00] rounded-xl px-3 py-2 text-center outline-none font-mono" />
+                            <input type="number" step="any" value={splitCashAmount} onChange={e => { setSplitCashAmount(e.target.value); setPaymentError(""); }} placeholder="0.00" className="w-full bg-white border border-gray-200 focus:border-[#ff6b00] rounded-xl px-3 py-2 text-center outline-none font-mono" />
                           </div>
                           <div>
                             <label className="text-xs font-bold text-gray-500 block mb-1">دفع إلكتروني</label>
-                            <input type="number" step="0.5" value={splitBankAmount} onChange={e => { setSplitBankAmount(e.target.value); setPaymentError(""); }} placeholder="0.00" className="w-full bg-white border border-gray-200 focus:border-[#ff6b00] rounded-xl px-3 py-2 text-center outline-none font-mono" />
+                            <input type="number" step="any" value={splitBankAmount} onChange={e => { setSplitBankAmount(e.target.value); setPaymentError(""); }} placeholder="0.00" className="w-full bg-white border border-gray-200 focus:border-[#ff6b00] rounded-xl px-3 py-2 text-center outline-none font-mono" />
                           </div>
                         </div>
                         {splitBankAmount && Number(splitBankAmount) > 0 && (
@@ -1092,7 +1098,7 @@ export default function POSDashboard() {
                         <div>
                           <label className="text-[10px] font-bold text-[#ff6b00] block mb-2 uppercase">تحميل جزء على موظف (اختياري!)</label>
                           <div className="flex gap-2">
-                            <input type="number" step="0.5" value={splitEmpAmount} onChange={e => setSplitEmpAmount(e.target.value)} placeholder="مبلغ الخصم" className="w-1/3 bg-white border border-red-200 focus:border-red-400 rounded-xl px-3 py-2 text-center outline-none font-mono" />
+                            <input type="number" step="any" value={splitEmpAmount} onChange={e => setSplitEmpAmount(e.target.value)} placeholder="مبلغ الخصم" className="w-1/3 bg-white border border-red-200 focus:border-red-400 rounded-xl px-3 py-2 text-center outline-none font-mono" />
                             <select value={splitEmpId || ""} onChange={e => setSplitEmpId(e.target.value)} className="w-2/3 bg-white border border-red-200 focus:border-red-400 rounded-xl px-3 py-2 outline-none font-bold">
                               <option value="">من الموظف؟ (لا أحد)</option>
                               {ALL_EMPLOYEES.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
@@ -1173,7 +1179,7 @@ export default function POSDashboard() {
                       {/* المبلغ */}
                       <div>
                         <label className="text-xs font-bold text-gray-500 block mb-1.5">المبلغ (د.ل)</label>
-                        <input type="number" min="1" step="0.5" value={amount} onChange={e => setAmount(e.target.value)} required placeholder="0.00" dir="ltr"
+                        <input type="number" min="1" step="any" value={amount} onChange={e => setAmount(e.target.value)} required placeholder="0.00" dir="ltr"
                           className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-gray-900 outline-none focus:border-[#ff6b00] font-mono text-lg" />
                       </div>
 
@@ -1208,7 +1214,7 @@ export default function POSDashboard() {
                     <form onSubmit={handleTransferMain} className="space-y-4">
                       <div>
                         <label className="text-xs font-bold text-gray-500 block mb-1.5">المبلغ المراد توريده (د.ل)</label>
-                        <input type="number" min="1" step="0.5" value={amount} onChange={e => setAmount(e.target.value)} required placeholder="0.00" dir="ltr"
+                        <input type="number" min="1" step="any" value={amount} onChange={e => setAmount(e.target.value)} required placeholder="0.00" dir="ltr"
                           className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-gray-900 outline-none focus:border-amber-500 font-mono text-lg" />
                       </div>
                       <div className="pt-3 border-t border-gray-100">
@@ -1297,7 +1303,7 @@ export default function POSDashboard() {
                       </div>
                       <div>
                         <label className="text-sm font-bold text-gray-800 block mb-2">الفعلي بالدرج (د.ل)</label>
-                        <input type="number" min="0" step="0.01" value={actualCash} onChange={e => setActualCash(e.target.value)} required placeholder="0.00" dir="ltr"
+                        <input type="number" min="0" step="any" value={actualCash} onChange={e => setActualCash(e.target.value)} required placeholder="0.00" dir="ltr"
                           className="w-full bg-gray-50 border-2 border-blue-200 focus:border-blue-500 rounded-2xl px-4 py-4 text-2xl font-bold text-gray-900 text-center outline-none font-mono" />
                       </div>
                       {actualCash !== "" && (

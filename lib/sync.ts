@@ -5,7 +5,7 @@ const tables = [
   'orders', 'inventory', 'treasuryLogs', 'invoices', 'branchRequests',
   'employees', 'hrDeductions', 'tillTransfers', 'shiftLogs', 'menuItems',
   'treasuryOutgoing', 'treasuryIncoming', 'suppliers', 'purchaseRequests',
-  'paymentOrders', 'customers', 'callCenterOrders', 'settings'
+  'paymentOrders', 'customers', 'callCenterOrders', 'settings', 'branchInventory'
 ];
 
 /**
@@ -92,6 +92,16 @@ export async function syncUnsyncedData() {
           console.log(`✅ [Background Sync] تمت مزامنة ${unsyncedRecords.length} سجلات في ${tableName}`);
           const updated = unsyncedRecords.map(r => ({ ...r, isSynced: true }));
           await table.bulkPut(updated);
+        }
+      }
+
+      // إضافة آلية السحب (Pull) للجداول المشتركة الهامة حتى ترى الفروع تحديثات المخزن الرئيسي والعكس
+      if (['inventory', 'branchInventory', 'branchRequests'].includes(tableName)) {
+        const { data, error: pullError } = await supabase.from(tableName).select('*');
+        if (!pullError && data && data.length > 0) {
+          // نعلم البيانات المسحوبة كمتزامنة حتى لا نعيد رفعها
+          const pulledData = data.map(d => ({ ...d, isSynced: true }));
+          await table.bulkPut(pulledData);
         }
       }
     } catch (err) {

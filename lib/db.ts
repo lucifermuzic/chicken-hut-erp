@@ -27,7 +27,14 @@ export interface InventoryItem {
   min: number;
   avgPrice: number;
   isSynced: boolean;
-  branchQtys?: Record<string, number>;
+}
+
+export interface BranchInventoryItem {
+  id?: string; // Format: `${itemId}_${branchId}`
+  itemId: number;
+  branchId: string;
+  qty: number;
+  isSynced: boolean;
 }
 
 export interface TreasuryLog {
@@ -269,6 +276,7 @@ export class ERPDatabase extends Dexie {
   purchaseRequests!: Table<PurchaseRequest>;
   paymentOrders!: Table<PaymentOrder>;
   settings!: Table<SystemSetting>;
+  branchInventory!: Table<BranchInventoryItem>;
 
   constructor() {
     super('ChickenHutERP_LocalDB');
@@ -402,6 +410,29 @@ export class ERPDatabase extends Dexie {
       paymentOrders:      '++id, voucherNumber, status, createdAt, purchaseRequestId',
       settings:           'id', // key-value for settings where id="system_settings"
     });
+
+    // الإصدار 11: فصل مخزون الفروع
+    this.version(11).stores({
+      orders:             '++id, orderNumber, type, paymentMethod, createdAt, isSynced, branchId',
+      inventory:          '++id, name, category, isSynced',
+      treasuryLogs:       '++id, type, createdAt, isSynced, branchId',
+      invoices:           'id, supplier, itemId, status, isSynced',
+      branchRequests:     'id, branch, itemId, status, isSynced',
+      employees:          'id, name, branch, role, accessLevel',
+      hrDeductions:       '++id, empName, empId, branch, createdAt, status',
+      tillTransfers:      '++id, fromTill, toTill, branchId, createdAt',
+      shiftLogs:          '++id, cashierName, tillNo, branchId, date',
+      menuItems:          '++id, name, category, isAvailable',
+      treasuryOutgoing:   '++id, type, branch, date, createdAt, isSynced',
+      treasuryIncoming:   '++id, type, branch, date, createdAt, isSynced',
+      callCenterOrders:   '++id, orderNumber, targetBranch, status, createdAt',
+      customers:          '++id, phone, name, lastOrderAt',
+      suppliers:          '++id, name, category, createdAt',
+      purchaseRequests:   '++id, requestNumber, status, createdAt, branch',
+      paymentOrders:      '++id, voucherNumber, status, createdAt, purchaseRequestId',
+      settings:           'id',
+      branchInventory:    'id, itemId, branchId, isSynced',
+    });
   }
 }
 
@@ -440,17 +471,32 @@ export async function seedDatabase() {
   const inventoryCount = await db.inventory.count();
   if (inventoryCount === 0) {
     await db.inventory.bulkAdd([
-      // كميات المخزن الرئيسي + كميات منفصلة لكل فرع في branchQtys
-      { id: 1, name: "دجاج كامل (مبرّد)",   category: "لحوم",      unit: "كيلو",   qty: 250,  min: 100, avgPrice: 8.5,  isSynced: false,
-        branchQtys: { "فرع وسط البلاد": 50, "فرع الحدائق": 35, "فرع فينيسيا": 25 } },
-      { id: 2, name: "شريحة برجر لحم",      category: "لحوم",      unit: "قطعة",   qty: 1500, min: 500, avgPrice: 1.2,  isSynced: false,
-        branchQtys: { "فرع وسط البلاد": 200, "فرع الحدائق": 140, "فرع فينيسيا": 100 } },
-      { id: 3, name: "خبز برجر (سمسم)",     category: "مخبوزات",   unit: "قطعة",   qty: 1000, min: 300, avgPrice: 0.35, isSynced: false,
-        branchQtys: { "فرع وسط البلاد": 150, "فرع الحدائق": 120, "فرع فينيسيا": 90 } },
-      { id: 4, name: "طماطم",               category: "خضراوات",   unit: "كيلو",   qty: 40,   min: 50,  avgPrice: 5.0,  isSynced: false,
-        branchQtys: { "فرع وسط البلاد": 10,  "فرع الحدائق": 8,   "فرع فينيسيا": 6 } },
-      { id: 5, name: "جبنة شيدر (شرائح)",   category: "ألبان",     unit: "شريحة",  qty: 3000, min: 800, avgPrice: 0.4,  isSynced: false,
-        branchQtys: { "فرع وسط البلاد": 300, "فرع الحدائق": 200, "فرع فينيسيا": 150 } },
+      { id: 1, name: "دجاج كامل (مبرّد)",   category: "لحوم",      unit: "كيلو",   qty: 250,  min: 100, avgPrice: 8.5,  isSynced: false },
+      { id: 2, name: "شريحة برجر لحم",      category: "لحوم",      unit: "قطعة",   qty: 1500, min: 500, avgPrice: 1.2,  isSynced: false },
+      { id: 3, name: "خبز برجر (سمسم)",     category: "مخبوزات",   unit: "قطعة",   qty: 1000, min: 300, avgPrice: 0.35, isSynced: false },
+      { id: 4, name: "طماطم",               category: "خضراوات",   unit: "كيلو",   qty: 40,   min: 50,  avgPrice: 5.0,  isSynced: false },
+      { id: 5, name: "جبنة شيدر (شرائح)",   category: "ألبان",     unit: "شريحة",  qty: 3000, min: 800, avgPrice: 0.4,  isSynced: false },
+    ]);
+  }
+
+  const branchInvCount = await db.branchInventory.count();
+  if (branchInvCount === 0) {
+    await db.branchInventory.bulkAdd([
+      { id: "1_فرع وسط البلاد", itemId: 1, branchId: "فرع وسط البلاد", qty: 50, isSynced: false },
+      { id: "1_فرع الحدائق", itemId: 1, branchId: "فرع الحدائق", qty: 35, isSynced: false },
+      { id: "1_فرع فينيسيا", itemId: 1, branchId: "فرع فينيسيا", qty: 25, isSynced: false },
+      { id: "2_فرع وسط البلاد", itemId: 2, branchId: "فرع وسط البلاد", qty: 200, isSynced: false },
+      { id: "2_فرع الحدائق", itemId: 2, branchId: "فرع الحدائق", qty: 140, isSynced: false },
+      { id: "2_فرع فينيسيا", itemId: 2, branchId: "فرع فينيسيا", qty: 100, isSynced: false },
+      { id: "3_فرع وسط البلاد", itemId: 3, branchId: "فرع وسط البلاد", qty: 150, isSynced: false },
+      { id: "3_فرع الحدائق", itemId: 3, branchId: "فرع الحدائق", qty: 120, isSynced: false },
+      { id: "3_فرع فينيسيا", itemId: 3, branchId: "فرع فينيسيا", qty: 90, isSynced: false },
+      { id: "4_فرع وسط البلاد", itemId: 4, branchId: "فرع وسط البلاد", qty: 10, isSynced: false },
+      { id: "4_فرع الحدائق", itemId: 4, branchId: "فرع الحدائق", qty: 8, isSynced: false },
+      { id: "4_فرع فينيسيا", itemId: 4, branchId: "فرع فينيسيا", qty: 6, isSynced: false },
+      { id: "5_فرع وسط البلاد", itemId: 5, branchId: "فرع وسط البلاد", qty: 300, isSynced: false },
+      { id: "5_فرع الحدائق", itemId: 5, branchId: "فرع الحدائق", qty: 200, isSynced: false },
+      { id: "5_فرع فينيسيا", itemId: 5, branchId: "فرع فينيسيا", qty: 150, isSynced: false },
     ]);
   }
 
@@ -516,11 +562,30 @@ export async function reseedEmployees(): Promise<void> {
 export async function reseedInventory(): Promise<void> {
   await db.inventory.clear();
   await db.inventory.bulkAdd([
-    { id: 1, name: "دجاج كامل (مبرّد)",  category: "لحوم",    unit: "كيلو",  qty: 250,  min: 100, avgPrice: 8.5,  isSynced: false, branchQtys: { "فرع وسط البلاد": 50, "فرع الحدائق": 35, "فرع فينيسيا": 25 } },
-    { id: 2, name: "شريحة برجر لحم",     category: "لحوم",    unit: "قطعة",  qty: 1500, min: 500, avgPrice: 1.2,  isSynced: false, branchQtys: { "فرع وسط البلاد": 200, "فرع الحدائق": 140, "فرع فينيسيا": 100 } },
-    { id: 3, name: "خبز برجر (سمسم)",    category: "مخبوزات", unit: "قطعة",  qty: 1000, min: 300, avgPrice: 0.35, isSynced: false, branchQtys: { "فرع وسط البلاد": 150, "فرع الحدائق": 120, "فرع فينيسيا": 90 } },
-    { id: 4, name: "طماطم",              category: "خضراوات", unit: "كيلو",  qty: 40,   min: 50,  avgPrice: 5.0,  isSynced: false, branchQtys: { "فرع وسط البلاد": 10, "فرع الحدائق": 8, "فرع فينيسيا": 6 } },
-    { id: 5, name: "جبنة شيدر (شرائح)",  category: "ألبان",   unit: "شريحة", qty: 3000, min: 800, avgPrice: 0.4,  isSynced: false, branchQtys: { "فرع وسط البلاد": 300, "فرع الحدائق": 200, "فرع فينيسيا": 150 } },
+    { id: 1, name: "دجاج كامل (مبرّد)",  category: "لحوم",    unit: "كيلو",  qty: 250,  min: 100, avgPrice: 8.5,  isSynced: false },
+    { id: 2, name: "شريحة برجر لحم",     category: "لحوم",    unit: "قطعة",  qty: 1500, min: 500, avgPrice: 1.2,  isSynced: false },
+    { id: 3, name: "خبز برجر (سمسم)",    category: "مخبوزات", unit: "قطعة",  qty: 1000, min: 300, avgPrice: 0.35, isSynced: false },
+    { id: 4, name: "طماطم",              category: "خضراوات", unit: "كيلو",  qty: 40,   min: 50,  avgPrice: 5.0,  isSynced: false },
+    { id: 5, name: "جبنة شيدر (شرائح)",  category: "ألبان",   unit: "شريحة", qty: 3000, min: 800, avgPrice: 0.4,  isSynced: false },
+  ]);
+  
+  await db.branchInventory.clear();
+  await db.branchInventory.bulkAdd([
+    { id: "1_فرع وسط البلاد", itemId: 1, branchId: "فرع وسط البلاد", qty: 50, isSynced: false },
+    { id: "1_فرع الحدائق", itemId: 1, branchId: "فرع الحدائق", qty: 35, isSynced: false },
+    { id: "1_فرع فينيسيا", itemId: 1, branchId: "فرع فينيسيا", qty: 25, isSynced: false },
+    { id: "2_فرع وسط البلاد", itemId: 2, branchId: "فرع وسط البلاد", qty: 200, isSynced: false },
+    { id: "2_فرع الحدائق", itemId: 2, branchId: "فرع الحدائق", qty: 140, isSynced: false },
+    { id: "2_فرع فينيسيا", itemId: 2, branchId: "فرع فينيسيا", qty: 100, isSynced: false },
+    { id: "3_فرع وسط البلاد", itemId: 3, branchId: "فرع وسط البلاد", qty: 150, isSynced: false },
+    { id: "3_فرع الحدائق", itemId: 3, branchId: "فرع الحدائق", qty: 120, isSynced: false },
+    { id: "3_فرع فينيسيا", itemId: 3, branchId: "فرع فينيسيا", qty: 90, isSynced: false },
+    { id: "4_فرع وسط البلاد", itemId: 4, branchId: "فرع وسط البلاد", qty: 10, isSynced: false },
+    { id: "4_فرع الحدائق", itemId: 4, branchId: "فرع الحدائق", qty: 8, isSynced: false },
+    { id: "4_فرع فينيسيا", itemId: 4, branchId: "فرع فينيسيا", qty: 6, isSynced: false },
+    { id: "5_فرع وسط البلاد", itemId: 5, branchId: "فرع وسط البلاد", qty: 300, isSynced: false },
+    { id: "5_فرع الحدائق", itemId: 5, branchId: "فرع الحدائق", qty: 200, isSynced: false },
+    { id: "5_فرع فينيسيا", itemId: 5, branchId: "فرع فينيسيا", qty: 150, isSynced: false },
   ]);
 }
 

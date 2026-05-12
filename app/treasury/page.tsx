@@ -573,7 +573,7 @@ function TreasuryTransferView({ showSuccess }: { showSuccess: (msg: string) => v
             <div>
               <label className="text-xs font-bold text-gray-500 block mb-2">قيمة النقل (د.ل)</label>
               <input
-                type="number" min="1" step="0.5" required
+                type="number" min="1" step="any" required
                 value={amount} onChange={e => setAmount(e.target.value)}
                 placeholder="0.00"
                 className="w-full bg-gray-50 border-2 border-gray-100 focus:border-[#ff6b00] rounded-xl px-4 py-4 font-mono text-2xl font-black outline-none transition text-center text-gray-900"
@@ -776,7 +776,24 @@ function PaymentOrdersView({ showSuccess }: { showSuccess: (msg: string) => void
       createdAt: now,
       isSynced: false,
     });
-    showSuccess(`تم صرف ${order.totalAmount.toFixed(2)} د.ل للمورد "${order.supplierName}"`);
+    const req = await db.purchaseRequests.get(order.purchaseRequestId);
+    if (req && req.itemId) {
+      const invItem = await db.inventory.get(req.itemId);
+      if (invItem) {
+        const totalCurrentValue = invItem.qty * invItem.avgPrice;
+        const totalAddedValue = order.qty * order.unitPrice;
+        const newQty = invItem.qty + order.qty;
+        const newAvgPrice = newQty > 0 ? (totalCurrentValue + totalAddedValue) / newQty : 0;
+
+        await db.inventory.update(req.itemId, {
+          qty: newQty,
+          avgPrice: newAvgPrice,
+          isSynced: false
+        });
+      }
+    }
+
+    showSuccess(`تم صرف وإضافة الكمية للمخزن للمورد "${order.supplierName}"`);
     printVoucher(order);
   };
 
