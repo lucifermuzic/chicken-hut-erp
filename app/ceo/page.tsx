@@ -6,7 +6,8 @@ import {
   Shield, Users, Activity, Settings, UserPlus, Building,
   Phone, Calendar, Image as ImageIcon, FileBadge, DollarSign, Wallet,
   Coffee, CreditCard, CheckCircle2, ChevronRight, X, ShieldCheck, UserMinus,
-  AlertCircle, TrendingUp, RefreshCcw, Lock, Unlock, Percent, Banknote, Map, Package, LogOut, ShoppingBag
+  AlertCircle, TrendingUp, RefreshCcw, Lock, Unlock, Percent, Banknote, Map, Package, LogOut, ShoppingBag,
+  PackageSearch, FileText, Truck, ArrowRightLeft, ClipboardList, Search, Plus, Clock, PackageCheck, Send
 } from "lucide-react";
 import { db, type Employee } from "@/lib/db";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -1304,15 +1305,135 @@ function MenuItemsManagementView({ showSuccess }: { showSuccess: (m: string) => 
 }
 
 // ─────────────────────────────────────────────────────────────
-// 6. إدارة المخازن والمواد الخام (Inventory Management)
+// 6. إدارة المخازن والمواد الخام (Inventory Management - CEO VERSION)
 // ─────────────────────────────────────────────────────────────
+type StoreTab = "المخزون الرئيسي" | "توريد الموردين" | "اعتماد الفواتير" | "صرف المخزون" | "إدارة الموردين" | "طلبات الشراء";
+
 function InventoryManagementView({ showSuccess }: { showSuccess: (m: string) => void }) {
-  const stock = useLiveQuery(() => db.inventory.toArray()) || [];
-  const totalValue = stock.reduce((acc, item) => acc + (item.qty * item.avgPrice), 0);
+  const [activeStoreTab, setActiveStoreTab] = useState<StoreTab>("المخزون الرئيسي");
+  
+  const mainStock = useLiveQuery(() => db.inventory.toArray()) || [];
+  const invoices = useLiveQuery(() => db.invoices.toArray()) || [];
+  const requests = useLiveQuery(() => db.branchRequests.toArray()) || [];
+  const purchaseRequests = useLiveQuery(() => db.purchaseRequests.toArray()) || [];
+  const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
+  const [outboundLogs, setOutboundLogs] = useState<any[]>([]);
+
+  // Functions copied from storekeeper logic
+  const handleAddInvoice = async (inv: any) => {
+    const newInvId = `INV-${Math.floor(Math.random() * 10000)}`;
+    await db.invoices.add({
+      ...inv,
+      id: newInvId,
+      date: new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" }),
+      status: "قيد المراجعة",
+      isSynced: false
+    });
+    showSuccess("تم تسجيل الفاتورة بنجاح.");
+  };
+
+  const handleApproveInvoice = async (invoiceId: string) => {
+    const inv = await db.invoices.get(invoiceId);
+    if (!inv) return;
+    
+    const item = await db.inventory.get(inv.itemId);
+    if (item) {
+      const oldTotalValue = item.qty * item.avgPrice;
+      const newTotalValue = inv.qty * inv.unitPrice;
+      const totalQty = item.qty + inv.qty;
+      const newAvgPrice = (oldTotalValue + newTotalValue) / totalQty;
+      
+      await db.inventory.update(inv.itemId, { qty: totalQty, avgPrice: newAvgPrice });
+    }
+    
+    await db.invoices.update(invoiceId, { status: "معتمدة" });
+    showSuccess("تم اعتماد الفاتورة وتحديث المخزون.");
+  };
+
+  const handleDispatch = async (itemId: number, qty: number, targetBranch: string, reqId?: string) => {
+    const item = await db.inventory.get(itemId);
+    if (!item) return;
+
+    if (item.qty < qty) {
+      alert("الكمية المطلوبة أكبر من المتوفر في المخزن الرئيسي!");
+      return;
+    }
+
+    await db.inventory.update(itemId, { qty: item.qty - qty });
+
+    const branchInvId = `${itemId}_${targetBranch}`;
+    const branchItem = await db.branchInventory.get(branchInvId);
+    if (branchItem) {
+      await db.branchInventory.update(branchInvId, { qty: branchItem.qty + qty, isSynced: false });
+    } else {
+      await db.branchInventory.add({ id: branchInvId, itemId, branchId: targetBranch, qty, isSynced: false });
+    }
+
+    setOutboundLogs(prev => [{
+      id: Date.now(),
+      time: new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" }),
+      itemName: item.name,
+      qtyStr: `${qty} ${item.unit}`,
+      target: targetBranch,
+      costUsed: item.avgPrice
+    }, ...prev]);
+
+    if (reqId) {
+      await db.branchRequests.update(reqId, { status: "منفذ" });
+    }
+
+    showSuccess(`تم صرف الكمية بنجاح لـ (${targetBranch}).`);
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* ملخص المالي */}
+      {/* Internal Tabs for Inventory */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        {[
+          { id: "المخزون الرئيسي", icon: Building },
+          { id: "توريد الموردين", icon: FileText },
+          { id: "اعتماد الفواتير", icon: CheckCircle2 },
+          { id: "صرف المخزون", icon: Truck },
+          { id: "إدارة الموردين", icon: Users },
+          { id: "طلبات الشراء", icon: ShoppingBag },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeStoreTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveStoreTab(tab.id as StoreTab)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all font-bold text-xs ${
+                isActive
+                  ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
+                  : "bg-white text-gray-500 hover:bg-gray-50 border border-gray-100"
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              <span>{tab.id}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="min-h-[400px]">
+        {activeStoreTab === "المخزون الرئيسي" && <MainStockView stock={mainStock} />}
+        {activeStoreTab === "توريد الموردين" && <IncomingInvoicesView stock={mainStock} onAddInvoice={handleAddInvoice} invoices={invoices} suppliers={suppliers} />}
+        {activeStoreTab === "اعتماد الفواتير" && <ApprovalsView stock={mainStock} invoices={invoices} onApprove={handleApproveInvoice} />}
+        {activeStoreTab === "صرف المخزون" && <OutboundFulfillmentView stock={mainStock} requests={requests} logs={outboundLogs} onDispatch={handleDispatch} />}
+        {activeStoreTab === "إدارة الموردين" && <SuppliersView suppliers={suppliers} onAdd={(msg) => showSuccess(msg)} />}
+        {activeStoreTab === "طلبات الشراء" && <PurchaseRequestsView stock={mainStock} suppliers={suppliers} purchaseRequests={purchaseRequests} onAdd={(msg) => showSuccess(msg)} />}
+      </div>
+    </div>
+  );
+}
+
+// ─── Sub-Components (Copied from Storekeeper) ───────────────────
+
+function MainStockView({ stock }: { stock: any[] }) {
+  const totalValue = stock.reduce((acc, item) => acc + (item.qty * item.avgPrice), 0);
+  return (
+    <div className="space-y-6">
       <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm flex items-center justify-between relative overflow-hidden">
         <div className="relative z-10 flex items-center gap-4">
           <div className="w-14 h-14 bg-amber-50 border border-amber-100 text-amber-500 rounded-2xl flex items-center justify-center">
@@ -1383,6 +1504,315 @@ function InventoryManagementView({ showSuccess }: { showSuccess: (m: string) => 
     </div>
   );
 }
+
+function IncomingInvoicesView({ stock, onAddInvoice, invoices, suppliers }: { stock: any[], onAddInvoice: any, invoices: any[], suppliers: any[] }) {
+  const [supplier, setSupplier] = useState("");
+  const [itemId, setItemId] = useState("");
+  const [qty, setQty] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
+
+  const [newItemName, setNewItemName] = useState("");
+  const [newItemUnit, setNewItemUnit] = useState("كجم");
+  const [newItemCategory, setNewItemCategory] = useState("مواد خام");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    let finalItemId = Number(itemId);
+
+    if (itemId === "NEW") {
+      if (!newItemName) return;
+      const newId = await db.inventory.add({
+        name: newItemName,
+        category: newItemCategory,
+        qty: 0,
+        unit: newItemUnit,
+        min: 10,
+        avgPrice: 0,
+        isSynced: false
+      });
+      finalItemId = newId as number;
+    }
+
+    onAddInvoice({ supplier, itemId: finalItemId, qty: Number(qty), unitPrice: parseFloat(unitPrice) });
+    setSupplier(""); setItemId(""); setQty(""); setUnitPrice("");
+    setNewItemName(""); setNewItemUnit("كجم"); setNewItemCategory("مواد خام");
+  };
+
+  const pendingInvoices = invoices.filter((i:any) => i.status === "قيد المراجعة");
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="lg:col-span-5 bg-white border border-gray-100 rounded-3xl p-8 shadow-sm h-fit">
+        <h3 className="text-xl font-extrabold text-gray-900 mb-2">تسجيل إيصال توريد مستلم</h3>
+        <p className="text-xs text-gray-500 mb-6 font-bold leading-relaxed">قم بتسجيل الفاتورة الحقيقية للمواد المستلمة اليوم.</p>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-xs font-bold text-gray-500 block mb-2">بيان واسم المُورّد</label>
+            <select value={supplier} onChange={e => setSupplier(e.target.value)} required className="w-full bg-[#f8f9fd] border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold">
+              <option value="">اختار المورد...</option>
+              {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 block mb-2">الصنف والتعبئة</label>
+            <select value={itemId} onChange={e => setItemId(e.target.value)} required className="w-full bg-[#f8f9fd] border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold">
+              <option value="">تحديد المادة الغذائية/التشغيلية...</option>
+              <option value="NEW">➕ إضافة صنف جديد (غير موجود بالقائمة)...</option>
+              {stock.map(s => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
+            </select>
+          </div>
+
+          {itemId === "NEW" && (
+            <div className="bg-orange-50/50 border border-orange-100 p-4 rounded-xl space-y-3">
+              <input type="text" value={newItemName} onChange={e => setNewItemName(e.target.value)} required placeholder="اسم الصنف الجديد" className="w-full bg-white border-2 border-gray-100 focus:border-orange-400 rounded-lg px-3 py-2 text-sm outline-none font-bold" />
+              <div className="grid grid-cols-2 gap-3">
+                <select value={newItemCategory} onChange={e => setNewItemCategory(e.target.value)} className="w-full bg-white border-2 border-gray-100 rounded-lg px-3 py-2 text-sm">
+                  <option value="مواد خام">مواد خام</option>
+                  <option value="تغليف وتعبئة">تغليف وتعبئة</option>
+                </select>
+                <select value={newItemUnit} onChange={e => setNewItemUnit(e.target.value)} className="w-full bg-white border-2 border-gray-100 rounded-lg px-3 py-2 text-sm">
+                  <option value="كجم">كجم</option>
+                  <option value="جرام">جرام</option>
+                  <option value="لتر">لتر</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            <input type="number" min="1" value={qty} onChange={e => setQty(e.target.value)} required placeholder="الكمية" className="w-full bg-[#f8f9fd] border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-mono text-center text-lg" />
+            <input type="number" step="any" min="0.01" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} required placeholder="0.00 د.ل" className="w-full bg-amber-50 border-2 border-amber-100 focus:border-amber-500 rounded-xl px-4 py-3 outline-none font-mono text-center text-lg text-amber-900" />
+          </div>
+          <button type="submit" className="w-full mt-4 flex items-center justify-center gap-2 bg-gray-900 hover:bg-black text-white px-8 py-4 rounded-xl font-bold transition">
+            <Plus className="w-5 h-5" /> تسجيل إذن توريد
+          </button>
+        </form>
+      </div>
+
+      <div className="lg:col-span-7 space-y-4">
+        <h3 className="text-lg font-extrabold text-orange-600 mb-2 flex items-center gap-2">
+          <Clock className="w-5 h-5" /> فواتير قيد المراجعة ({pendingInvoices.length})
+        </h3>
+        {pendingInvoices.map((inv:any) => {
+          const item = stock.find(i => i.id === inv.itemId);
+          return (
+            <div key={inv.id} className="bg-white border border-orange-100 p-5 rounded-2xl flex flex-col md:flex-row items-center gap-4 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-1 h-full bg-orange-400" />
+              <div className="flex-1 w-full">
+                <div className="flex justify-between items-center mb-1">
+                  <p className="font-extrabold text-gray-900 text-sm">{inv.supplier}</p>
+                  <span className="text-[10px] font-mono text-gray-400 bg-[#f8f9fd] px-2 rounded">{inv.id}</span>
+                </div>
+                <p className="text-xs font-bold text-gray-500 mb-2">{item?.name} — {inv.qty} {item?.unit} بسعر {inv.unitPrice} د.ل</p>
+                <div className="flex justify-between items-center bg-[#f8f9fd] p-2 rounded-lg text-xs font-bold mt-2">
+                  <span className="text-gray-400">إجمالي المطلوب</span>
+                  <span className="text-orange-600 font-mono text-sm">{(inv.qty * inv.unitPrice).toFixed(2)} د.ل</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ApprovalsView({ stock, invoices, onApprove }: { stock: any[], invoices: any[], onApprove: any }) {
+  const unapproved = invoices.filter((i:any) => i.status === "قيد المراجعة");
+  return (
+    <div className="space-y-6">
+      <div className="bg-white border border-gray-100 rounded-3xl overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b border-gray-50 bg-[#f8f9fd]/50">
+          <h3 className="text-sm font-extrabold text-gray-900">سجل الإيصالات المعلقة</h3>
+        </div>
+        <table className="w-full text-right border-collapse">
+          <thead>
+            <tr className="bg-[#f8f9fd] border-b border-gray-100 text-xs font-bold text-gray-500">
+              <th className="px-6 py-4">المورد والمادة</th>
+              <th className="px-6 py-4 text-center">الكمية</th>
+              <th className="px-6 py-4 text-center">التكلفة الجديدة</th>
+              <th className="px-6 py-4 text-center">الإجراء</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {unapproved.map((inv:any) => {
+              const item = stock.find(i => i.id === inv.itemId);
+              return (
+                <tr key={inv.id} className="hover:bg-[#f8f9fd]/50 transition">
+                  <td className="px-6 py-4 text-sm font-extrabold text-gray-900">
+                    {inv.supplier}
+                    <p className="text-[10px] text-gray-500 font-bold mt-1">({item?.name})</p>
+                  </td>
+                  <td className="px-6 py-4 text-sm font-mono font-bold text-center text-gray-700 bg-[#f8f9fd]/30">
+                    {inv.qty} <span className="text-[10px] text-gray-400 font-sans">{item?.unit}</span>
+                  </td>
+                  <td className="px-6 py-4 text-sm font-mono font-bold text-center text-orange-600 bg-orange-50/30">
+                    {inv.unitPrice.toFixed(2)} د.ل
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <button onClick={() => onApprove(inv.id)} className="bg-green-500 hover:bg-green-600 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-lg shadow-green-500/20 transition flex items-center justify-center gap-1.5 mx-auto">
+                      <CheckCircle2 className="w-4 h-4" /> اعتماد
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function OutboundFulfillmentView({ stock, requests, logs, onDispatch }: { stock: any[], requests: any[], logs: any[], onDispatch: any }) {
+  const pendingRequests = requests.filter((r:any) => r.status === "جديد");
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="lg:col-span-7 space-y-4">
+        <h3 className="text-lg font-extrabold text-blue-600 mb-2 flex items-center gap-2">
+          <Truck className="w-5 h-5" /> طلبات صرف بضاعة للفروع ({pendingRequests.length})
+        </h3>
+        {pendingRequests.map((req:any) => {
+          const item = stock.find(i => i.id === req.itemId);
+          return (
+            <div key={req.id} className="bg-white border border-blue-100 p-5 rounded-3xl flex items-center justify-between shadow-sm">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-500">
+                  <ArrowRightLeft className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="font-extrabold text-gray-900">{req.branchId}</p>
+                  <p className="text-xs font-bold text-gray-500">المطلوب: {req.qty} {item?.unit} من ({item?.name})</p>
+                </div>
+              </div>
+              <button onClick={() => onDispatch(req.itemId, req.qty, req.branchId, req.id)} className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition">صرف وتوجيه</button>
+            </div>
+          );
+        })}
+      </div>
+      <div className="lg:col-span-5 bg-white border border-gray-100 rounded-3xl p-6 shadow-sm h-fit">
+        <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2"><Clock className="w-4 h-4" /> سجل الصرف اليومي</h3>
+        <div className="space-y-3">
+          {logs.map((log:any) => (
+            <div key={log.id} className="text-[11px] border-r-2 border-gray-100 pr-3 py-1">
+              <p className="font-bold text-gray-700">{log.time} - {log.itemName}</p>
+              <p className="text-gray-400">صرف {log.qtyStr} إلى {log.target}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SuppliersView({ suppliers, onAdd }: { suppliers: any[]; onAdd: (msg: string) => void }) {
+  const [name, setName] = useState("");
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await db.suppliers.add({ name, createdAt: new Date().toISOString() });
+    onAdd(`تم إضافة المورد "${name}" بنجاح`);
+    setName("");
+  };
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="lg:col-span-4 bg-white border border-gray-100 rounded-3xl p-7 shadow-sm h-fit">
+        <h3 className="text-xl font-extrabold text-gray-900 mb-1 flex items-center gap-2"><Users className="w-5 h-5 text-orange-500" /> إضافة مورد جديد</h3>
+        <form onSubmit={handleAdd} className="space-y-4">
+          <input required value={name} onChange={e => setName(e.target.value)} placeholder="اسم المورد" className="w-full bg-gray-50 border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold" />
+          <button type="submit" className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20">
+            <Plus className="w-5 h-5" /> إضافة المورد
+          </button>
+        </form>
+      </div>
+      <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+        {suppliers.map((s: any) => (
+          <div key={s.id} className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm font-extrabold text-gray-900 text-sm">{s.name}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PurchaseRequestsView({ stock, suppliers, purchaseRequests, onAdd }: { stock: any[]; suppliers: any[]; purchaseRequests: any[]; onAdd: (msg: string) => void }) {
+  const [supplierName, setSupplierName] = useState("");
+  const [itemId, setItemId] = useState("");
+  const [qty, setQty] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
+  const total = parseFloat(qty || "0") * parseFloat(unitPrice || "0");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const count = await db.purchaseRequests.count();
+    const requestNumber = `PR-${String(count + 1).padStart(4, "0")}`;
+    const selectedItem = stock.find(s => String(s.id) === itemId);
+
+    await db.purchaseRequests.add({
+      requestNumber,
+      supplierName,
+      itemId: Number(itemId),
+      itemName: selectedItem?.name || "",
+      qty: parseFloat(qty),
+      unit: selectedItem?.unit || "",
+      unitPrice: parseFloat(unitPrice),
+      totalAmount: total,
+      branch: "المخزن الرئيسي",
+      status: "معلق",
+      createdAt: new Date().toISOString(),
+    });
+    onAdd(`تم إرسال طلب الشراء ${requestNumber} للاعتماد`);
+    setSupplierName(""); setItemId(""); setQty(""); setUnitPrice("");
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="bg-white border border-gray-100 rounded-3xl p-7 shadow-sm">
+        <h3 className="text-xl font-extrabold text-gray-900 mb-4 flex items-center gap-2"><ShoppingBag className="w-5 h-5 text-orange-500" /> إنشاء طلب شراء جديد</h3>
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <select value={supplierName} onChange={e => setSupplierName(e.target.value)} required className="w-full bg-gray-50 border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold">
+            <option value="">اختر المورد...</option>
+            {suppliers.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
+          </select>
+          <select value={itemId} onChange={e => setItemId(e.target.value)} required className="w-full bg-gray-50 border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold">
+            <option value="">اختر الصنف...</option>
+            {stock.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
+          </select>
+          <input type="number" min="1" required value={qty} onChange={e => setQty(e.target.value)} placeholder="الكمية" className="w-full bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3" />
+          <input type="number" step="any" min="0.01" required value={unitPrice} onChange={e => setUnitPrice(e.target.value)} placeholder="سعر الوحدة" className="w-full bg-amber-50 border-2 border-amber-100 rounded-xl px-4 py-3" />
+          <div className="lg:col-span-4 flex items-center justify-between bg-green-50 p-4 rounded-xl">
+            <span className="font-bold text-green-800">الإجمالي: {total.toFixed(2)} د.ل</span>
+            <button type="submit" className="bg-gray-900 hover:bg-black text-white font-bold px-8 py-3 rounded-xl transition shadow-lg">إرسال طلب الشراء</button>
+          </div>
+        </form>
+      </div>
+      <div className="bg-white border border-gray-100 rounded-3xl overflow-hidden shadow-sm">
+        <table className="w-full text-right">
+          <thead>
+            <tr className="bg-gray-50 text-xs font-bold text-gray-500 border-b border-gray-100">
+              <th className="px-5 py-3">رقم الطلب</th>
+              <th className="px-5 py-3">المورد</th>
+              <th className="px-5 py-3">الصنف</th>
+              <th className="px-5 py-3 text-center">الحالة</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {purchaseRequests.map(r => (
+              <tr key={r.id}>
+                <td className="px-5 py-4 font-mono text-xs text-gray-400">{r.requestNumber}</td>
+                <td className="px-5 py-4 font-bold text-sm text-gray-900">{r.supplierName}</td>
+                <td className="px-5 py-4 text-sm text-gray-600">{r.itemName}</td>
+                <td className="px-5 py-4 text-center"><span className="text-[10px] font-bold bg-amber-50 text-amber-600 px-2 py-1 rounded">{r.status}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+
+
 
 // ─── اعتماد طلبات الشراء من أمين المخزن (CEO) ───────────────────
 function PurchaseRequestsApprovalView({ showSuccess }: { showSuccess: (msg: string) => void }) {
