@@ -676,7 +676,7 @@ function AddEmployeeForm({ onCancel, onSubmit, initialData }: any) {
     });
   };
 
-  const update = (field: string, value: any) => setFormData(p => ({ ...p, [field]: value }));
+  const update = (field: string, value: any) => setFormData((p: any) => ({ ...p, [field]: value }));
 
   return (
     <div className="bg-white border border-gray-100 rounded-3xl overflow-hidden shadow-2xl relative">
