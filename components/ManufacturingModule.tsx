@@ -58,6 +58,7 @@ export function ManufacturingModuleView({ showSuccess }: { showSuccess: (m: stri
 // ─── 1. إدارة وصفات المنتجات (Recipes / BOM) ───────────────────
 function RecipesManagementView({ products, mainInventory, showSuccess }: { products: ManufacturedProduct[], mainInventory: any[], showSuccess: any }) {
   const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [category, setCategory] = useState("صوصات");
   const [outputUnit, setOutputUnit] = useState("كيلو");
@@ -90,13 +91,38 @@ function RecipesManagementView({ products, mainInventory, showSuccess }: { produ
       return;
     }
     
-    await db.manufacturedProducts.add({
-      name, category, outputUnit, outputQtyPerBatch, ingredients, createdAt: new Date().toISOString()
-    });
+    if (editingId) {
+      await db.manufacturedProducts.update(editingId, {
+        name, category, outputUnit, outputQtyPerBatch, ingredients
+      });
+      showSuccess(`تم تحديث وصفة ${name} بنجاح.`);
+    } else {
+      await db.manufacturedProducts.add({
+        name, category, outputUnit, outputQtyPerBatch, ingredients, createdAt: new Date().toISOString()
+      });
+      showSuccess(`تم حفظ وصفة ${name} بنجاح.`);
+    }
 
-    showSuccess(`تم حفظ وصفة ${name} بنجاح.`);
     setIsAdding(false);
+    setEditingId(null);
     setName(""); setIngredients([]); setOutputQtyPerBatch(1);
+  };
+
+  const handleEdit = (p: ManufacturedProduct) => {
+    setEditingId(p.id!);
+    setName(p.name);
+    setCategory(p.category);
+    setOutputUnit(p.outputUnit);
+    setOutputQtyPerBatch(p.outputQtyPerBatch);
+    setIngredients(p.ingredients);
+    setIsAdding(true);
+  };
+
+  const handleDelete = async (id: number) => {
+    if (confirm("هل أنت متأكد من حذف هذه الوصفة نهائياً؟")) {
+      await db.manufacturedProducts.delete(id);
+      showSuccess("تم حذف الوصفة.");
+    }
   };
 
   return (
@@ -107,7 +133,7 @@ function RecipesManagementView({ products, mainInventory, showSuccess }: { produ
           <p className="text-sm text-gray-500 font-medium">تعريف المنتجات التي تُصنع داخل المطعم قبل إضافتها للوجبات (مثل: الكول سلو، الثومية).</p>
         </div>
         {!isAdding && (
-          <button onClick={() => setIsAdding(true)} className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-3 rounded-xl font-bold transition flex items-center gap-2 shadow-lg shadow-purple-500/20">
+          <button onClick={() => { setIsAdding(true); setEditingId(null); setName(""); setIngredients([]); setOutputQtyPerBatch(1); }} className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-3 rounded-xl font-bold transition flex items-center gap-2 shadow-lg shadow-purple-500/20">
             <Plus className="w-5 h-5" /> إضافة وصفة جديدة
           </button>
         )}
@@ -115,7 +141,7 @@ function RecipesManagementView({ products, mainInventory, showSuccess }: { produ
 
       {isAdding && (
         <form onSubmit={handleSave} className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm space-y-6">
-          <h4 className="font-extrabold text-gray-900 border-b border-gray-100 pb-3">تعريف منتج وسيط جديد</h4>
+          <h4 className="font-extrabold text-gray-900 border-b border-gray-100 pb-3">{editingId ? "تعديل الوصفة" : "تعريف منتج وسيط جديد"}</h4>
           
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="md:col-span-2">
@@ -188,8 +214,8 @@ function RecipesManagementView({ products, mainInventory, showSuccess }: { produ
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-            <button type="button" onClick={() => setIsAdding(false)} className="px-6 py-3 text-gray-500 font-bold hover:bg-gray-50 rounded-xl transition">إلغاء</button>
-            <button type="submit" className="bg-purple-600 text-white font-bold px-8 py-3 rounded-xl shadow-lg shadow-purple-500/30">حفظ المنتج بكتيب الوصفات</button>
+            <button type="button" onClick={() => { setIsAdding(false); setEditingId(null); }} className="px-6 py-3 text-gray-500 font-bold hover:bg-gray-50 rounded-xl transition">إلغاء</button>
+            <button type="submit" className="bg-purple-600 text-white font-bold px-8 py-3 rounded-xl shadow-lg shadow-purple-500/30">{editingId ? "تحديث الوصفة" : "حفظ المنتج بكتيب الوصفات"}</button>
           </div>
         </form>
       )}
@@ -205,9 +231,15 @@ function RecipesManagementView({ products, mainInventory, showSuccess }: { produ
                   <h4 className="text-lg font-extrabold text-gray-900">{p.name}</h4>
                   <span className="text-[10px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded-md font-bold mt-1 inline-block">{p.category}</span>
                 </div>
-                <div className="text-left">
-                  <p className="text-[10px] text-gray-400 font-bold mb-1">وحدة التخزين</p>
-                  <p className="font-bold text-gray-900 bg-[#f8f9fd] px-2 py-1 rounded text-xs">{p.outputUnit}</p>
+                <div className="text-left flex flex-col items-end gap-2">
+                  <div className="flex gap-2">
+                    <button onClick={() => handleEdit(p)} className="text-blue-500 hover:text-blue-700 text-xs font-bold">تعديل</button>
+                    <button onClick={() => handleDelete(p.id!)} className="text-red-500 hover:text-red-700 text-xs font-bold">حذف</button>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400 font-bold mb-1">وحدة التخزين</p>
+                    <p className="font-bold text-gray-900 bg-[#f8f9fd] px-2 py-1 rounded text-xs">{p.outputUnit}</p>
+                  </div>
                 </div>
               </div>
               <div className="bg-[#f8f9fd] rounded-xl p-4 mb-4 flex-1">
@@ -463,6 +495,7 @@ function MealStudioView({ showSuccess }: { showSuccess: (msg: string) => void })
   const opStock = useLiveQuery(() => db.operationalStock.toArray()) ?? [];
   
   const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [formData, setFormData] = useState({ name: "", category: "الطبق الرئيسي", price: 0, image: "🍔" });
   const [ingredients, setIngredients] = useState<{ type: 'raw'|'op'; itemId: number; qty: number; unit: string; costPerUnit: number; name: string }[]>([]);
 
@@ -493,17 +526,41 @@ function MealStudioView({ showSuccess }: { showSuccess: (msg: string) => void })
     
     const cost = ingredients.reduce((acc, curr) => acc + (curr.qty * curr.costPerUnit), 0);
     
-    await db.menuItems.add({
-      ...formData,
-      cost,
-      isAvailable: true,
-      ingredients: ingredients.map(i => ({ itemId: i.itemId, name: i.name, qty: i.qty, unit: i.unit, costPerUnit: i.costPerUnit, type: i.type })) as any
-    });
+    if (editingId) {
+      await db.menuItems.update(editingId, {
+        ...formData,
+        cost,
+        ingredients: ingredients.map(i => ({ itemId: i.itemId, name: i.name, qty: i.qty, unit: i.unit, costPerUnit: i.costPerUnit, type: i.type })) as any
+      });
+      showSuccess("تم تحديث الوجبة بنجاح.");
+    } else {
+      await db.menuItems.add({
+        ...formData,
+        cost,
+        isAvailable: true,
+        ingredients: ingredients.map(i => ({ itemId: i.itemId, name: i.name, qty: i.qty, unit: i.unit, costPerUnit: i.costPerUnit, type: i.type })) as any
+      });
+      showSuccess("تم بناء الوجبة النهائية بنجاح.");
+    }
     
     setIsAdding(false);
-    showSuccess("تم بناء الوجبة النهائية بنجاح.");
+    setEditingId(null);
     setFormData({ name: "", category: "الطبق الرئيسي", price: 0, image: "🍔" });
     setIngredients([]);
+  };
+
+  const handleEdit = (m: any) => {
+    setEditingId(m.id);
+    setFormData({ name: m.name, category: m.category, price: m.price, image: m.image });
+    setIngredients(m.ingredients || []);
+    setIsAdding(true);
+  };
+
+  const handleDelete = async (id: number) => {
+    if (confirm("هل أنت متأكد من حذف هذه الوجبة نهائياً؟")) {
+      await db.menuItems.delete(id);
+      showSuccess("تم حذف الوجبة.");
+    }
   };
 
   return (
@@ -517,7 +574,7 @@ function MealStudioView({ showSuccess }: { showSuccess: (msg: string) => void })
           <p className="text-sm text-gray-500 font-medium">بناء الوجبات النهائية وربط مكوناتها بالمخزن الرئيسي والتشغيلي (BOM Level 2).</p>
         </div>
         {!isAdding && (
-          <button onClick={() => setIsAdding(true)} className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-3 rounded-xl font-bold transition flex items-center gap-2 shadow-lg shadow-purple-500/20">
+          <button onClick={() => { setIsAdding(true); setEditingId(null); setFormData({ name: "", category: "الطبق الرئيسي", price: 0, image: "🍔" }); setIngredients([]); }} className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-3 rounded-xl font-bold transition flex items-center gap-2 shadow-lg shadow-purple-500/20">
             <Plus className="w-5 h-5" /> بناء وجبة جديدة
           </button>
         )}
@@ -578,8 +635,8 @@ function MealStudioView({ showSuccess }: { showSuccess: (msg: string) => void })
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={() => setIsAdding(false)} className="px-6 py-3 text-gray-500 font-bold hover:bg-gray-50 rounded-xl transition">إلغاء</button>
-            <button type="submit" className="bg-purple-600 hover:bg-purple-500 text-white font-bold px-8 py-3 rounded-xl shadow-lg shadow-purple-500/30">حفظ الوجبة في الـ Menu</button>
+            <button type="button" onClick={() => { setIsAdding(false); setEditingId(null); }} className="px-6 py-3 text-gray-500 font-bold hover:bg-gray-50 rounded-xl transition">إلغاء</button>
+            <button type="submit" className="bg-purple-600 hover:bg-purple-500 text-white font-bold px-8 py-3 rounded-xl shadow-lg shadow-purple-500/30">{editingId ? "تحديث الوجبة" : "حفظ الوجبة في الـ Menu"}</button>
           </div>
         </form>
       )}
@@ -593,6 +650,12 @@ function MealStudioView({ showSuccess }: { showSuccess: (msg: string) => void })
               <div className="flex-1">
                 <div className="flex justify-between items-start mb-1">
                   <h4 className="font-extrabold text-gray-900">{m.name}</h4>
+                  <div className="flex gap-2">
+                    <button onClick={() => handleEdit(m)} className="text-blue-500 hover:text-blue-700 text-[10px] font-bold">تعديل</button>
+                    <button onClick={() => handleDelete(m.id!)} className="text-red-500 hover:text-red-700 text-[10px] font-bold">حذف</button>
+                  </div>
+                </div>
+                <div className="mb-2">
                   <span className="text-[10px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded-md font-bold">{m.category}</span>
                 </div>
                 <p className="text-orange-500 font-black text-lg mb-2">{m.price} د.ل</p>

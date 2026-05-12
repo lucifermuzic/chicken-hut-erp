@@ -77,10 +77,19 @@ export default function CEODashboard() {
   };
 
   const handleCreateEmployee = async (emp: Omit<Employee, "id">) => {
-    const newId = `EMP-${Math.floor(Math.random() * 900) + 100}`;
-    await db.employees.add({ ...emp, id: newId, createdAt: new Date().toISOString() } as Employee);
-    setIsAdding(false);
-    showSuccess("تم إضافة الموظف ومنحه الصلاحيات بنجاح!");
+    if (selectedEmp && isAdding) {
+      // Edit mode
+      await db.employees.update(selectedEmp.id, { ...emp } as Partial<Employee>);
+      setIsAdding(false);
+      setSelectedEmp(null);
+      showSuccess("تم تحديث بيانات الموظف بنجاح!");
+    } else {
+      // Create mode
+      const newId = `EMP-${Math.floor(Math.random() * 900) + 100}`;
+      await db.employees.add({ ...emp, id: newId, createdAt: new Date().toISOString() } as Employee);
+      setIsAdding(false);
+      showSuccess("تم إضافة الموظف ومنحه الصلاحيات بنجاح!");
+    }
   };
 
   const handleDeleteEmployee = async (id: string) => {
@@ -184,14 +193,16 @@ export default function CEODashboard() {
             {activeTab === "الهيكل التنظيمي والموظفين" && !isAdding && !selectedEmp && (
               <EmployeesDirectoryView
                 employees={employees}
-                onAddClick={() => setIsAdding(true)}
+                onAddClick={() => { setIsAdding(true); setSelectedEmp(null); }}
                 onEmpClick={setSelectedEmp}
+                onEditClick={(emp: any) => { setSelectedEmp(emp); setIsAdding(true); }}
               />
             )}
 
             {activeTab === "الهيكل التنظيمي والموظفين" && isAdding && (
               <AddEmployeeForm
-                onCancel={() => setIsAdding(false)}
+                initialData={selectedEmp}
+                onCancel={() => { setIsAdding(false); setSelectedEmp(null); }}
                 onSubmit={handleCreateEmployee}
               />
             )}
@@ -545,7 +556,7 @@ function PurchasesApprovalView({ invoices, inventory, onApprove }: {
 }
 
 // ─── 1. شاشة استعراض الموظفين والفروع ────────────────────────
-function EmployeesDirectoryView({ employees, onAddClick, onEmpClick }: any) {
+function EmployeesDirectoryView({ employees, onAddClick, onEmpClick, onEditClick }: any) {
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center bg-white p-6 rounded-3xl border border-gray-100 shadow-xl">
@@ -583,9 +594,11 @@ function EmployeesDirectoryView({ employees, onAddClick, onEmpClick }: any) {
               <p className="text-xs text-gray-400 flex items-center gap-2"><Phone className="w-3.5 h-3.5 text-gray-500" /> رقم الاتصال: <strong className="text-gray-200">{emp.phone}</strong></p>
             </div>
 
-            <div className="mt-5 pt-5 border-t border-gray-100 flex justify-between items-center text-sm font-bold text-gray-500 group-hover:text-orange-400 transition">
-              <span>عرض الكشف والإيصال المفصل</span>
-              <ChevronRight className="w-5 h-5" />
+            <div className="mt-5 pt-5 border-t border-gray-100 flex justify-between items-center text-sm font-bold transition">
+              <button onClick={(e) => { e.stopPropagation(); onEditClick(emp); }} className="text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition text-[11px]">
+                تعديل البيانات
+              </button>
+              <span className="text-gray-500 group-hover:text-orange-400 flex items-center gap-1">عرض الكشف <ChevronRight className="w-4 h-4" /></span>
             </div>
           </div>
         ))}
@@ -595,19 +608,19 @@ function EmployeesDirectoryView({ employees, onAddClick, onEmpClick }: any) {
 }
 
 // ─── 2. شاشة إضافة الموظف (الاستمارة) ───────────────────────
-function AddEmployeeForm({ onCancel, onSubmit }: any) {
-  const [formData, setFormData] = useState({
+function AddEmployeeForm({ onCancel, onSubmit, initialData }: any) {
+  const [formData, setFormData] = useState(initialData || {
     name: "", phone: "", dob: "", branch: BRANCHES[0], role: "", accessLevel: "", pin: "",
     baseSalary: 0, deductHalfDay: 0, deductFullDay: 0,
     mealsEnabled: false, mealsLimit: 0, cashWithdrawEnabled: false, cashWithdrawLimit: 0,
     totalAdvance: 0, monthlyAdvanceCut: 0
   });
 
-  const [avatarUrl, setAvatarUrl] = useState("");
-  const [docUrl, setDocUrl] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState(initialData?.avatar || "");
+  const [docUrl, setDocUrl] = useState(initialData?.documentId || "");
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
-  const [needsLogin, setNeedsLogin] = useState(false); // هل يحتاج الموظف للدخول للنظام (كاشير/مدير)؟
+  const [needsLogin, setNeedsLogin] = useState(!!initialData?.accessLevel); // هل يحتاج الموظف للدخول للنظام (كاشير/مدير)؟
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'avatar' | 'doc') => {
     const file = e.target.files?.[0];
@@ -670,7 +683,7 @@ function AddEmployeeForm({ onCancel, onSubmit }: any) {
       {/* Header */}
       <div className="bg-gray-50 px-8 py-6 border-b border-gray-100 flex justify-between items-center">
         <div>
-          <h3 className="text-xl font-extrabold text-gray-900 flex items-center gap-2 mb-1"><UserPlus className="w-6 h-6 text-orange-400" /> استمارة تعيين وتخصيص موظف جديد</h3>
+          <h3 className="text-xl font-extrabold text-gray-900 flex items-center gap-2 mb-1"><UserPlus className="w-6 h-6 text-orange-400" /> {initialData ? "تعديل بيانات الموظف" : "استمارة تعيين وتخصيص موظف جديد"}</h3>
           <p className="text-sm text-gray-400 font-medium">بناء هوية الموظف في النظام الخاص بالمطعم ومنحه الصلاحيات المحاسبية وسقوفه المالية.</p>
         </div>
         <button onClick={onCancel} className="w-10 h-10 bg-gray-800 hover:bg-red-500/20 text-gray-400 hover:text-red-500 rounded-full flex items-center justify-center transition">
@@ -868,7 +881,7 @@ function AddEmployeeForm({ onCancel, onSubmit }: any) {
         <div className="pt-8 border-t border-gray-100 flex justify-end gap-4">
           <button type="button" onClick={onCancel} className="px-8 py-4 font-bold text-gray-400 hover:text-gray-900 transition">إلغاء التعيين</button>
           <button type="submit" className="bg-orange-600 hover:bg-orange-500 text-gray-900 px-12 py-4 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-orange-600/30 transition">
-            حفظ وإنشاء السجل الوظيفي للموظف
+            {initialData ? "تحديث بيانات الموظف" : "حفظ وإنشاء السجل الوظيفي للموظف"}
           </button>
         </div>
       </form>
@@ -1072,6 +1085,7 @@ function MenuItemsManagementView({ showSuccess }: { showSuccess: (m: string) => 
   const inventoryItems = useLiveQuery(() => db.inventory.toArray()) || [];
 
   const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [category, setCategory] = useState("الطبق الرئيسي");
   const [newCategory, setNewCategory] = useState("");
@@ -1119,18 +1133,41 @@ function MenuItemsManagementView({ showSuccess }: { showSuccess: (m: string) => 
     if (!name || !price) return;
     const finalCategory = newCategory.trim() !== "" ? newCategory.trim() : category;
 
-    await db.menuItems.add({
-      name,
-      category: finalCategory,
-      price: parseFloat(price),
-      cost: totalCost,
-      image,
-      ingredients,
-      isAvailable: true
-    });
-    showSuccess(`تمت إضافة ${name} للقائمة بنجاح!`);
+    if (editingId) {
+      await db.menuItems.update(editingId, {
+        name,
+        category: finalCategory,
+        price: parseFloat(price),
+        cost: totalCost,
+        image,
+        ingredients
+      });
+      showSuccess(`تم تحديث ${name} بنجاح!`);
+    } else {
+      await db.menuItems.add({
+        name,
+        category: finalCategory,
+        price: parseFloat(price),
+        cost: totalCost,
+        image,
+        ingredients,
+        isAvailable: true
+      });
+      showSuccess(`تمت إضافة ${name} للقائمة بنجاح!`);
+    }
     setIsAdding(false);
+    setEditingId(null);
     setName(""); setPrice(""); setImage("🍔"); setIngredients([]); setNewCategory(""); setCategory("الطبق الرئيسي");
+  };
+
+  const handleEdit = (m: any) => {
+    setEditingId(m.id);
+    setName(m.name);
+    setCategory(m.category);
+    setPrice(m.price.toString());
+    setImage(m.image);
+    setIngredients(m.ingredients || []);
+    setIsAdding(true);
   };
 
   const toggleAvailability = async (id: number, current: boolean) => {
@@ -1153,7 +1190,7 @@ function MenuItemsManagementView({ showSuccess }: { showSuccess: (m: string) => 
           <p className="text-xs font-bold text-gray-500 mt-1">إضافة الأصناف، تحديد مكوناتها من المخزن، وتسعيرها لتُحسب التكلفة والأرباح آلياً.</p>
         </div>
         {!isAdding && (
-          <button onClick={() => setIsAdding(true)} className="bg-orange-600 hover:bg-orange-500 text-gray-900 font-bold px-6 py-3 rounded-xl shadow-lg shadow-orange-500/20 transition flex items-center gap-2">
+          <button onClick={() => { setIsAdding(true); setEditingId(null); setName(""); setPrice(""); setImage("🍔"); setIngredients([]); setNewCategory(""); setCategory("الطبق الرئيسي"); }} className="bg-orange-600 hover:bg-orange-500 text-gray-900 font-bold px-6 py-3 rounded-xl shadow-lg shadow-orange-500/20 transition flex items-center gap-2">
             إضافة صنف جديد / وصفة
           </button>
         )}
@@ -1161,7 +1198,7 @@ function MenuItemsManagementView({ showSuccess }: { showSuccess: (m: string) => 
 
       {isAdding && (
         <form onSubmit={handleAdd} className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm space-y-6">
-          <h4 className="font-extrabold text-gray-900">إضافة صنف جديد وتحديد التكلفة</h4>
+          <h4 className="font-extrabold text-gray-900">{editingId ? "تعديل الصنف وتحديد التكلفة" : "إضافة صنف جديد وتحديد التكلفة"}</h4>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
@@ -1264,8 +1301,8 @@ function MenuItemsManagementView({ showSuccess }: { showSuccess: (m: string) => 
             </div>
 
             <div className="flex items-center gap-3">
-              <button type="submit" className="bg-emerald-600 hover:bg-[#ff6b00] text-white font-bold px-8 py-3 rounded-xl transition">تأكيد وحفظ الصنف</button>
-              <button type="button" onClick={() => setIsAdding(false)} className="bg-gray-800 hover:bg-gray-700 text-gray-900 font-bold px-6 py-3 rounded-xl transition">إلغاء</button>
+              <button type="submit" className="bg-emerald-600 hover:bg-[#ff6b00] text-white font-bold px-8 py-3 rounded-xl transition">{editingId ? "تحديث الصنف" : "تأكيد وحفظ الصنف"}</button>
+              <button type="button" onClick={() => { setIsAdding(false); setEditingId(null); }} className="bg-gray-800 hover:bg-gray-700 text-gray-900 font-bold px-6 py-3 rounded-xl transition">إلغاء</button>
             </div>
           </div>
         </form>
@@ -1304,6 +1341,9 @@ function MenuItemsManagementView({ showSuccess }: { showSuccess: (m: string) => 
                   className={`flex-1 text-[11px] font-bold px-3 py-2 rounded-xl border ${item.isAvailable ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20'}`}
                 >
                   {item.isAvailable ? 'متاح للبيع (إيقاف)' : 'موقوف (إتاحة)'}
+                </button>
+                <button onClick={() => handleEdit(item)} className="text-[11px] font-bold px-4 py-2 rounded-xl border bg-blue-500/10 text-blue-500 border-blue-500/20 hover:text-blue-700 hover:bg-blue-500/20 transition">
+                  تعديل
                 </button>
                 <button onClick={() => deleteItem(item.id!)} className="text-[11px] font-bold px-4 py-2 rounded-xl border bg-gray-800 text-gray-400 border-gray-200 hover:text-gray-900 hover:bg-gray-700 transition">
                   حذف
@@ -1721,26 +1761,60 @@ function OutboundFulfillmentView({ stock, requests, logs, onDispatch }: { stock:
 
 function SuppliersView({ suppliers, onAdd }: { suppliers: any[]; onAdd: (msg: string) => void }) {
   const [name, setName] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    await db.suppliers.add({ name, createdAt: new Date().toISOString() });
-    onAdd(`تم إضافة المورد "${name}" بنجاح`);
+    if (editingId) {
+      await db.suppliers.update(editingId, { name });
+      onAdd(`تم تعديل المورد "${name}" بنجاح`);
+    } else {
+      await db.suppliers.add({ name, createdAt: new Date().toISOString() });
+      onAdd(`تم إضافة المورد "${name}" بنجاح`);
+    }
     setName("");
+    setEditingId(null);
   };
+
+  const handleDelete = async (id: number) => {
+    if (confirm("هل أنت متأكد من حذف هذا المورد؟")) {
+      await db.suppliers.delete(id);
+      onAdd("تم حذف المورد بنجاح");
+    }
+  };
+
+  const handleEdit = (s: any) => {
+    setEditingId(s.id);
+    setName(s.name);
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
       <div className="lg:col-span-4 bg-white border border-gray-100 rounded-3xl p-7 shadow-sm h-fit">
-        <h3 className="text-xl font-extrabold text-gray-900 mb-1 flex items-center gap-2"><Users className="w-5 h-5 text-orange-500" /> إضافة مورد جديد</h3>
+        <h3 className="text-xl font-extrabold text-gray-900 mb-1 flex items-center gap-2"><Users className="w-5 h-5 text-orange-500" /> {editingId ? "تعديل المورد" : "إضافة مورد جديد"}</h3>
         <form onSubmit={handleAdd} className="space-y-4">
           <input required value={name} onChange={e => setName(e.target.value)} placeholder="اسم المورد" className="w-full bg-gray-50 border-2 border-gray-100 focus:border-orange-500 rounded-xl px-4 py-3 outline-none font-bold" />
-          <button type="submit" className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20">
-            <Plus className="w-5 h-5" /> إضافة المورد
-          </button>
+          <div className="flex gap-2">
+            <button type="submit" className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20">
+              <Plus className="w-5 h-5" /> {editingId ? "حفظ التعديلات" : "إضافة المورد"}
+            </button>
+            {editingId && (
+              <button type="button" onClick={() => { setEditingId(null); setName(""); }} className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-3.5 px-4 rounded-xl transition">
+                إلغاء
+              </button>
+            )}
+          </div>
         </form>
       </div>
       <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-4">
         {suppliers.map((s: any) => (
-          <div key={s.id} className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm font-extrabold text-gray-900 text-sm">{s.name}</div>
+          <div key={s.id} className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm flex justify-between items-center group transition hover:border-orange-200">
+            <span className="font-extrabold text-gray-900 text-sm">{s.name}</span>
+            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition">
+              <button onClick={() => handleEdit(s)} className="text-blue-500 hover:text-blue-700 text-xs font-bold">تعديل</button>
+              <button onClick={() => handleDelete(s.id)} className="text-red-500 hover:text-red-700 text-xs font-bold">حذف</button>
+            </div>
+          </div>
         ))}
       </div>
     </div>
