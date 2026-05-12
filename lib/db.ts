@@ -133,7 +133,7 @@ export interface MenuItem {
   category: string;
   price: number;
   image: string;
-  ingredients: { itemId: number; name: string; qty: number; unit: string; costPerUnit: number }[];
+  ingredients: { itemId: number; name: string; qty: number; unit: string; costPerUnit: number; source?: "raw" | "manufactured" }[];
   cost: number;
   isAvailable: boolean;
 }
@@ -256,6 +256,61 @@ export interface SystemSetting {
   branchesControl: { id: string; name: string; active: boolean }[];
 }
 
+// ─── وحدة التصنيع — المنتجات الوسيطة ────────────────────────────
+// جدول تعريف المنتجات المصنعة وقوائم المواد (BOM)
+export interface ManufacturedProduct {
+  id?: number;
+  name: string;              // مثال: سلطة كول سلو
+  category: string;          // صوصات | سلطات | منتجات مجزأة
+  outputUnit: string;        // وحدة الإنتاج: كيلو، لتر، قطعة
+  outputQtyPerBatch: number; // كمية الإنتاج لكل دفعة واحدة
+  // BOM مستوى 1: المكونات من المخزن الرئيسي
+  ingredients: {
+    inventoryItemId: number;
+    name: string;
+    qty: number;
+    unit: string;           // وحدة الاستهلاك (جرام، مل، قطعة)
+    costPerUnit: number;    // تكلفة الوحدة بالمتوسط المرجح
+  }[];
+  notes?: string;
+  createdAt: string;
+}
+
+// جدول دفعات الإنتاج الفعلي (Production Orders)
+export interface ProductionBatch {
+  id?: number;
+  batchNumber: string;          // PB-0001
+  productId: number;            // مرجع ManufacturedProduct
+  productName: string;
+  batchCount: number;           // عدد الدفعات المنتجة
+  outputQty: number;            // الكمية الكلية المنتجة
+  outputUnit: string;
+  totalCost: number;            // التكلفة الإجمالية المستهلكة
+  // مواد مستهلكة من المخزن الرئيسي
+  consumedIngredients: {
+    inventoryItemId: number;
+    name: string;
+    qtyConsumed: number;
+    unit: string;
+  }[];
+  status: "جاري" | "مكتمل" | "ملغي";
+  createdAt: string;
+  completedAt?: string;
+  notes?: string;
+}
+
+// المخزن التشغيلي — يضم المنتجات المصنعة والجاهزة للتحضير
+export interface OperationalStockItem {
+  id?: number;
+  productId: number;         // مرجع ManufacturedProduct
+  productName: string;
+  category: string;
+  qty: number;               // الكمية المتاحة
+  unit: string;
+  avgCost: number;           // متوسط التكلفة المرجح
+  lastUpdated: string;
+}
+
 // ─── تعريف قاعدة البيانات ─────────────────────────────────────
 export class ERPDatabase extends Dexie {
   orders!: Table<Order>;
@@ -277,6 +332,10 @@ export class ERPDatabase extends Dexie {
   paymentOrders!: Table<PaymentOrder>;
   settings!: Table<SystemSetting>;
   branchInventory!: Table<BranchInventoryItem>;
+  // وحدة التصنيع
+  manufacturedProducts!: Table<ManufacturedProduct>;
+  productionBatches!: Table<ProductionBatch>;
+  operationalStock!: Table<OperationalStockItem>;
 
   constructor() {
     super('ChickenHutERP_LocalDB');
@@ -432,6 +491,33 @@ export class ERPDatabase extends Dexie {
       paymentOrders:      '++id, voucherNumber, status, createdAt, purchaseRequestId',
       settings:           'id',
       branchInventory:    'id, itemId, branchId, isSynced',
+    });
+
+    // الإصدار 12: وحدة التصنيع والمخازن المتعددة
+    this.version(12).stores({
+      orders:               '++id, orderNumber, type, paymentMethod, createdAt, isSynced, branchId',
+      inventory:            '++id, name, category, isSynced',
+      treasuryLogs:         '++id, type, createdAt, isSynced, branchId',
+      invoices:             'id, supplier, itemId, status, isSynced',
+      branchRequests:       'id, branch, itemId, status, isSynced',
+      employees:            'id, name, branch, role, accessLevel',
+      hrDeductions:         '++id, empName, empId, branch, createdAt, status',
+      tillTransfers:        '++id, fromTill, toTill, branchId, createdAt',
+      shiftLogs:            '++id, cashierName, tillNo, branchId, date',
+      menuItems:            '++id, name, category, isAvailable',
+      treasuryOutgoing:     '++id, type, branch, date, createdAt, isSynced',
+      treasuryIncoming:     '++id, type, branch, date, createdAt, isSynced',
+      callCenterOrders:     '++id, orderNumber, targetBranch, status, createdAt',
+      customers:            '++id, phone, name, lastOrderAt',
+      suppliers:            '++id, name, category, createdAt',
+      purchaseRequests:     '++id, requestNumber, status, createdAt, branch',
+      paymentOrders:        '++id, voucherNumber, status, createdAt, purchaseRequestId',
+      settings:             'id',
+      branchInventory:      'id, itemId, branchId, isSynced',
+      // وحدة التصنيع
+      manufacturedProducts: '++id, name, category, createdAt',
+      productionBatches:    '++id, batchNumber, productId, status, createdAt',
+      operationalStock:     '++id, productId, productName, category',
     });
   }
 }

@@ -369,20 +369,33 @@ export default function POSDashboard() {
           for (const ingredient of cartItem.ingredients) {
             let deductQty = ingredient.qty * cartItem.quantity;
             
-            // Unit conversion: grams to kilos, ml to liters
-            const invItem = await db.inventory.get(ingredient.itemId);
-            if (invItem) {
-               if (invItem.unit === "كيلو" && ingredient.unit === "جرام") deductQty /= 1000;
-               else if (invItem.unit === "لتر" && ingredient.unit === "مل") deductQty /= 1000;
-            }
+            if (ingredient.source === "manufactured") {
+               const opStockItem = await db.operationalStock.get(ingredient.itemId);
+               if (opStockItem) {
+                  if (opStockItem.unit === "كيلو" && ingredient.unit === "جرام") deductQty /= 1000;
+                  else if (opStockItem.unit === "لتر" && ingredient.unit === "مل") deductQty /= 1000;
 
-            const branchInvId = `${ingredient.itemId}_${sessionBranch}`;
-            const branchItem = await db.branchInventory.get(branchInvId);
-            if (branchItem && branchItem.qty > 0) {
-              await db.branchInventory.update(branchInvId, { 
-                qty: Math.max(0, branchItem.qty - deductQty),
-                isSynced: false 
-              });
+                  await db.operationalStock.update(opStockItem.id!, {
+                      qty: Math.max(0, opStockItem.qty - deductQty),
+                      lastUpdated: new Date().toISOString()
+                  });
+               }
+            } else {
+               // Unit conversion: grams to kilos, ml to liters
+               const invItem = await db.inventory.get(ingredient.itemId);
+               if (invItem) {
+                  if (invItem.unit === "كيلو" && ingredient.unit === "جرام") deductQty /= 1000;
+                  else if (invItem.unit === "لتر" && ingredient.unit === "مل") deductQty /= 1000;
+               }
+
+               const branchInvId = `${ingredient.itemId}_${sessionBranch}`;
+               const branchItem = await db.branchInventory.get(branchInvId);
+               if (branchItem && branchItem.qty > 0) {
+                 await db.branchInventory.update(branchInvId, { 
+                   qty: Math.max(0, branchItem.qty - deductQty),
+                   isSynced: false 
+                 });
+               }
             }
           }
         }

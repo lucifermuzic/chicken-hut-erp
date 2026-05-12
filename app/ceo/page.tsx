@@ -7,14 +7,15 @@ import {
   Phone, Calendar, Image as ImageIcon, FileBadge, DollarSign, Wallet,
   Coffee, CreditCard, CheckCircle2, ChevronRight, X, ShieldCheck, UserMinus,
   AlertCircle, TrendingUp, RefreshCcw, Lock, Unlock, Percent, Banknote, Map, Package, LogOut, ShoppingBag,
-  PackageSearch, FileText, Truck, ArrowRightLeft, ClipboardList, Search, Plus, Clock, PackageCheck, Send
+  PackageSearch, FileText, Truck, ArrowRightLeft, ClipboardList, Search, Plus, Clock, PackageCheck, Send, Factory
 } from "lucide-react";
 import { db, type Employee } from "@/lib/db";
 import { useLiveQuery } from "dexie-react-hooks";
 import { clearSession } from "@/lib/auth";
+import { ManufacturingModuleView } from "@/components/ManufacturingModule";
 
 // ─── أنواع ───────────────────────────────────────────────────
-type TabType = "النظرة العامة" | "الهيكل التنظيمي والموظفين" | "إعدادات الصلاحيات" | "اعتماد المشتريات والتوريد" | "قائمة الطعام والوجبات (Menu)" | "إدارة المخازن والمواد الخام";
+type TabType = "النظرة العامة" | "الهيكل التنظيمي والموظفين" | "إعدادات الصلاحيات" | "اعتماد المشتريات والتوريد" | "قائمة الطعام والوجبات (Menu)" | "إدارة المخازن والمواد الخام" | "إدارة التصنيع والمخازن المتعددة";
 
 const BRANCHES = ["فرع وسط البلاد", "فرع الحدائق", "فرع فينيسيا"];
 const ROLES = ["كاشير", "مدير فرع", "محاسب / خزينة", "أمين مخزن", "مساعد شيف"];
@@ -23,6 +24,11 @@ const ROLES = ["كاشير", "مدير فرع", "محاسب / خزينة", "أم
 
 export default function CEODashboard() {
   const [activeTab, setActiveTab] = useState<TabType>("الهيكل التنظيمي والموظفين");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // قراءة الموظفين من Dexie — تحديث تلقائي لجميع التبويبات
   const employees = useLiveQuery(() => db.employees.toArray()) ?? [];
@@ -84,6 +90,8 @@ export default function CEODashboard() {
     showSuccess("تم حذف ملف الموظف من النظام.");
   };
 
+  if (!mounted) return null;
+
   return (
     <div className="flex h-screen bg-[#f8f9fd] text-gray-900 font-sans" dir="rtl">
 
@@ -116,6 +124,7 @@ export default function CEODashboard() {
             { id: "الهيكل التنظيمي والموظفين", icon: Users },
             { id: "قائمة الطعام والوجبات (Menu)", icon: Coffee },
             { id: "إدارة المخازن والمواد الخام", icon: Package },
+            { id: "إدارة التصنيع والمخازن المتعددة", icon: Factory },
             { id: "اعتماد المشتريات والتوريد", icon: FileBadge },
             { id: "النظرة العامة", icon: Activity },
             { id: "إعدادات الصلاحيات", icon: Settings },
@@ -242,8 +251,12 @@ export default function CEODashboard() {
               <MenuItemsManagementView showSuccess={showSuccess} />
             )}
 
-            {activeTab === "إدارة المخازن والمواد الخام" && (
+            { activeTab === "إدارة المخازن والمواد الخام" && (
               <InventoryManagementView showSuccess={showSuccess} />
+            )}
+
+            { activeTab === "إدارة التصنيع والمخازن المتعددة" && (
+              <ManufacturingModuleView showSuccess={showSuccess} />
             )}
           </div>
         </div>
